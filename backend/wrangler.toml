@@ -1,0 +1,12 @@
+name = "deadspan-bot"
+main = "worker.js"
+compatibility_date = "2026-11-01"
+
+[vars]
+GAME_URL = "https://curtisrobertrc-droid.github.io/deadspan/"
+
+# Create with: npx wrangler kv namespace create KV   (then paste the id below)
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_KV_ID"
+# Secrets (not in git): npx wrangler secret put BOT_TOKEN ; npx wrangler secret put WEBHOOK_SECRET

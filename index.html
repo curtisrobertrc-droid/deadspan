@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>Deadspan: hold the bridge</title>
+<meta name="description" content="Deadspan: a free zombie bridge-runner. Grow your squad through gates, grab weapons, and hold the bridge against the horde. Plays in Telegram or any browser.">
+<meta name="theme-color" content="#14121c">
+<meta property="og:title" content="Deadspan: hold the bridge">
+<meta property="og:description" content="Grow your squad, pick the right gate, survive the horde.">
+<meta property="og:image" content="assets/cover.png">
+<link rel="icon" href="assets/icon.svg">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="wrap"><canvas id="cv"></canvas></div>
+
+<section id="menu" class="screen">
+  <div class="top"><span class="pill">🪙 <b id="menuCoins">0</b></span><button id="btnSound" class="ghost">🔊</button></div>
+  <div class="logo">DEAD<span>SPAN</span></div>
+  <div class="tag">Hold the bridge. Grow the squad. Survive the horde.</div>
+  <div class="lvl">LEVEL <b id="menuLevel">1</b><small id="menuBoss"></small></div>
+  <button id="btnPlay" class="big">PLAY ▶</button>
+  <div class="row">
+    <button id="btnShop">🛠 Upgrades</button>
+    <button id="btnDaily">🎁 Daily<i id="dailyDot"></i></button>
+    <button id="btnInvite">👥 Invite</button>
+  </div>
+  <div class="how">Drag to move · Your squad fires automatically · Pick the best gate · Shoot gates to raise them</div>
+  <footer><a href="privacy.html">Privacy</a> · <a href="credits.html">Credits</a></footer>
+</section>
+
+<section id="hud" class="screen">
+  <div class="hbar"><span id="hudLevel">LEVEL 1</span><span class="pill">🪙 <b id="hudCoins">0</b></span></div>
+  <div class="prog"><div id="hudBar"></div></div>
+  <div id="hudWeapon">Rifle</div>
+</section>
+
+<section id="result" class="screen">
+  <div class="card">
+    <h1 id="resTitle">CLEARED!</h1>
+    <p id="resSub"></p>
+    <div class="coins">🪙 <b id="resCoins">+0</b></div>
+    <button id="btnDouble" class="ad">▶ Watch ad: DOUBLE coins</button>
+    <button id="btnRevive" class="ad">▶ Watch ad: REVIVE squad</button>
+    <button id="btnNext" class="big">NEXT ▶</button>
+    <button id="btnMenu" class="ghost">Menu</button>
+  </div>
+</section>
+
+<div id="shop" class="modal"><div class="sheet">
+  <h2>Upgrades <span class="pill">🪙 <b id="shopCoins">0</b></span></h2>
+  <div id="upList"></div>
+  <h3>Telegram Stars</h3>
+  <div id="starList"></div>
+  <button class="ghost" data-close>Close</button>
+</div></div>
+
+<div id="daily" class="modal"><div class="sheet">
+  <h2>Daily supply drop</h2>
+  <div id="dailyDays" class="days"></div>
+  <div id="dailyAmt" class="coins"></div>
+  <button id="btnClaim" class="big">CLAIM</button>
+  <button id="btnClaim2" class="ad">▶ Watch ad: claim ×2</button>
+  <button class="ghost" data-close>Close</button>
+</div></div>
+
+<div id="toast"></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

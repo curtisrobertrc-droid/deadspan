@@ -1,0 +1,23 @@
+// Deadspan — runtime config. Everything monetisation-related is OFF until filled in.
+export const CFG = {
+  GAME_NAME: 'Deadspan',
+  VERSION: '0.1.0',
+  // Telegram bot username (without @), set after Rob creates the bot in @BotFather.
+  BOT_USERNAME: '',            // e.g. 'DeadspanGameBot'
+  MINI_APP_SHORT_NAME: '',     // e.g. 'play' (only if created via /newapp)
+  // AdsGram rewarded block id (from partner.adsgram.ai). Empty = rewarded ads disabled.
+  ADSGRAM_BLOCK_ID: '',
+  ADSGRAM_DEBUG: false,        // true = AdsGram test ads (use while testing in Telegram)
+  // Backend (Cloudflare Worker) that creates Telegram Stars invoices. Empty = shop shows "coming soon".
+  BACKEND_URL: '',             // e.g. 'https://deadspan-bot.<sub>.workers.dev'
+  // Fixed-content Stars products (no random rewards — UK loot-box safe).
+  STAR_PRODUCTS: [
+    { sku: 'coins_5k',  title: '5,000 coins',  stars: 50 },
+    { sku: 'coins_15k', title: '15,000 coins', stars: 120 },
+  ],
+  REFERRAL_BONUS: 300,         // coins for a new player who joins via a friend's link
+};
+// Dev helpers: ?devads=1 simulates a rewarded ad in a normal browser; ?bot=1 autoplays (for clips/screenshots).
+export const QS = new URLSearchParams(location.search);
+export const DEV_FAKE_ADS = QS.get('devads') === '1';
+export const AUTOPLAY = QS.get('bot') === '1';
