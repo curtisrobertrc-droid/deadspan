@@ -16,6 +16,9 @@ export const CFG = {
     { sku: 'coins_15k', title: '15,000 coins', stars: 120 },
   ],
   REFERRAL_BONUS: 300,         // coins for a new player who joins via a friend's link
+  MORE_GAMES: [
+    { name: 'Deadspan: Outpost', tag: 'Merge tower defence', url: 'https://curtisrobertrc-droid.github.io/deadspan-outpost/', icon: 'https://curtisrobertrc-droid.github.io/deadspan-outpost/assets/icon.svg' },
+  ],
 };
 // Dev helpers: ?devads=1 simulates a rewarded ad in a normal browser; ?bot=1 autoplays (for clips/screenshots).
 export const QS = new URLSearchParams(location.search);

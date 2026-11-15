@@ -19,6 +19,8 @@ Part of **Deadspan Arcade**, a separate brand for a small family of simple, addi
 - Referral: invite button builds a `t.me/<bot>?startapp=ref_<id>` link, and new players arriving through one get a coin bonus.
 - Dev flags: `?devads=1` simulates rewarded ads in a browser; `?bot=1` autoplays (for screenshots and X/TikTok clips).
 
+More from Deadspan Arcade: [Deadspan: Outpost](https://curtisrobertrc-droid.github.io/deadspan-outpost/), a merge tower defence.
+
 ## Layout
 ```
 index.html, style.css      game shell + UI

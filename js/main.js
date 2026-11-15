@@ -79,6 +79,12 @@ function refresh() {
   }
 }
 
+function renderMore() {
+  const mg = $('#moreGames'); if (!mg) return; mg.innerHTML = '';
+  for (const g of CFG.MORE_GAMES || []) { const a = document.createElement('a'); a.className = 'more'; a.href = g.url; a.innerHTML = `<img src="${g.icon}" alt=""><span><span class="k">MORE GAMES</span><br><b>${g.name}</b><small>${g.tag}</small></span>`; mg.appendChild(a); }
+}
+renderMore();
+
 function showResult(r) {
   S.runs++;
   const box = $('#result');

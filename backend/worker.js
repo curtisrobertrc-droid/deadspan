@@ -10,6 +10,9 @@
 const PRODUCTS = {
   coins_5k:  { title: '5,000 coins',  description: 'Adds exactly 5,000 coins to your Deadspan account.',  stars: 50,  coins: 5000 },
   coins_15k: { title: '15,000 coins', description: 'Adds exactly 15,000 coins to your Deadspan account.', stars: 120, coins: 15000 },
+  // Deadspan: Outpost (game #2). Credits are claimed per game via the same KV, keyed by sku prefix.
+  op_coins_5k:  { title: '5,000 Outpost coins',  description: 'Adds exactly 5,000 coins to Deadspan: Outpost.',  stars: 50,  coins: 5000,  game: 'outpost' },
+  op_coins_15k: { title: '15,000 Outpost coins', description: 'Adds exactly 15,000 coins to Deadspan: Outpost.', stars: 120, coins: 15000, game: 'outpost' },
 };
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json', ...CORS } });
@@ -47,7 +50,7 @@ export default {
       } else if (u.message && u.message.successful_payment) {
         const sp = u.message.successful_payment; const [uid, sku] = sp.invoice_payload.split(':'); const prod = PRODUCTS[sku];
         if (prod) {
-          const key = 'credit:' + uid; const cur = Number(await env.KV.get(key) || 0);
+          const key = 'credit:' + (prod.game ? prod.game + ':' : '') + uid; const cur = Number(await env.KV.get(key) || 0);
           await env.KV.put(key, String(cur + prod.coins));
           await env.KV.put('charge:' + sp.telegram_payment_charge_id, JSON.stringify({ uid, sku, at: Date.now() })); // keep for refunds
           await tg(env, 'sendMessage', { chat_id: u.message.chat.id, text: `Thanks! ${prod.title} will be added next time you open Deadspan.` });
@@ -76,9 +79,9 @@ export default {
     }
 
     if (url.pathname === '/claim' && req.method === 'POST') {
-      const { initData } = await req.json(); const user = await verifyInitData(env, initData || '');
+      const { initData, game } = await req.json(); const user = await verifyInitData(env, initData || '');
       if (!user) return json({ error: 'bad_request' }, 400);
-      const key = 'credit:' + user.id; const coins = Number(await env.KV.get(key) || 0);
+      const key = 'credit:' + (game === 'outpost' ? 'outpost:' : '') + user.id; const coins = Number(await env.KV.get(key) || 0);
       if (coins) await env.KV.delete(key);
       return json({ coins });
     }

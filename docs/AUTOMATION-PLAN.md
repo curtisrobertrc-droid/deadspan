@@ -81,7 +81,7 @@ Shared pieces to lift into `/shared` when game #2 starts: `platform.js` (Telegra
 
 | # | Working title | Core loop | Reuse |
 |---|---|---|---|
-| 2 | **Deadspan: Last Outpost** (tower defence) | Zombies walk a fixed lane toward your outpost. Tap to place and merge turrets (gun → MG → flamer). Every wave there's a choice of 3 perks. Boss every 5 waves. | Sprites (zombies, boss), particles and pops, shop, daily, ads, Stars, backend |
+| 2 | **Deadspan: Outpost** (merge tower defence). **LIVE:** https://curtisrobertrc-droid.github.io/deadspan-outpost/ (renamed from "Last Outpost", which is an existing Steam zombie TD by Troyd Games) | Zombies walk a fixed lane toward your outpost. Tap to place and merge turrets (gun → MG → flamer). Every wave there's a choice of 3 perks. Boss every 5 waves. | Sprites (zombies, boss), particles and pops, shop, daily, ads, Stars, backend |
 | 3 | **Deadspan: Survivor Merge** (merge/multiplier survival) | Merge survivors 2→1 to level them, they auto-fight nightly hordes, and multiplier tiles (×2 squad) appear between nights. Idle earnings while offline (cap 8 h, ×2 with a rewarded ad). | Engine loop, gates/multiplier logic, save, ads, Stars |
 
 Per-game checklist (about 1 to 2 days each, by the bot):
