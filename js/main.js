@@ -1,6 +1,6 @@
 import { CFG, AUTOPLAY, DEVOK } from './config.js';
 import { IS_PORTAL, TARGET, gameplay, loadingDone, PortalAds, onAdMute, portalScore } from './portal.js?v2';
-import { tg, initPlatform, inTelegram, loadLocal, loadCloud, save, haptic, startParam, shareInvite, userId } from './platform.js';
+import { tg, initPlatform, inTelegram, loadLocal, loadCloud, save, haptic, startParam, shareInvite, copyInvite, inviteLink, userId } from './platform.js';
 import { Ads } from './ads.js';
 import { Payments } from './payments.js';
 import { setSound, setAdMute, unlockAudio, SFX } from './audio.js';
@@ -15,12 +15,17 @@ const $ = s => document.querySelector(s);
 const DEF = { v: 1, level: 1, coins: 0, best: 0, up: { rate: 0, dmg: 0, squad: 0 }, daily: { last: '', streak: 0 }, runs: 0, sound: true, refClaimed: false, created: Date.now() };
 let S = Object.assign({}, DEF, loadLocal() || {}); S.up = Object.assign({}, DEF.up, S.up); S.daily = Object.assign({}, DEF.daily, S.daily);
 const persist = () => save(S);
-loadCloud().then(c => { if (c && (c.level > S.level || (c.level === S.level && c.coins > S.coins))) { S = Object.assign({}, DEF, c); S.up = Object.assign({}, DEF.up, c.up); S.daily = Object.assign({}, DEF.daily, c.daily); persist(); refresh(); if (typeof meta !== "undefined") meta.reapply(); } });
+loadCloud().then(c => { if (c && (c.level > S.level || (c.level === S.level && c.coins > S.coins))) { const ref = S.referrer, pend = S.refPending, paid = S.refInviteePaid; S = Object.assign({}, DEF, c); S.up = Object.assign({}, DEF.up, c.up); S.daily = Object.assign({}, DEF.daily, c.daily); if (ref && !S.referrer) { S.referrer = ref; S.refPending = S.refPending || pend; S.refInviteePaid = S.refInviteePaid || paid; } persist(); refresh(); if (typeof meta !== "undefined") meta.reapply(); } });
 setSound(S.sound);
 
-// referral bonus for new players arriving via ?startapp=ref_<id> (inviter reward needs the bot backend)
-const sp = startParam();
-if (sp && /^ref_/.test(sp) && !S.refClaimed && sp !== 'ref_' + userId()) { S.refClaimed = true; S.coins += CFG.REFERRAL_BONUS; persist(); setTimeout(() => toast(`Welcome bonus: +${CFG.REFERRAL_BONUS} coins from your friend's invite!`), 600); }
+// Store the referrer locally. Coin rewards (both players, once the invitee finishes level 1) are paid by the Worker when leaderboards are on; until then they are queued quietly.
+{
+  const p = startParam(); const me = userId();
+  if (p && /^ref_\d{1,15}$/.test(p)) {
+    const id = p.slice(4);
+    if (id && id !== String(me || '') && !S.referrer) { S.referrer = id; persist(); }
+  }
+}
 
 const UPS = [
   { id: 'rate', name: 'Fire rate', icon: '⚡', desc: '+12% shots per second', base: 40, g: 1.5, max: 30 },
@@ -131,6 +136,17 @@ function showResult(r) {
   $('#btnNext').textContent = r.win ? `NEXT: LEVEL ${r.L + 1} ▶` : 'TRY AGAIN ↻';
   $('#btnNext').onclick = () => { collect(1); play(); };
   $('#btnMenu').onclick = () => { collect(1); refresh(); show('menu'); };
+  const shareBtn = $('#btnShareScore');
+  if (shareBtn) {
+    shareBtn.style.display = IS_PORTAL ? 'none' : '';
+    const shareText = r.win
+      ? `I cleared level ${r.L} in Deadspan! Think you can beat my score? 🧟`
+      : `I made it ${Math.round(r.progress * 100)}% through level ${r.L} in Deadspan. Bet you can beat my score! 🧟`;
+    shareBtn.onclick = () => doShare(shareText);
+  }
+  const clearedNow = r.win ? r.L : r.L - 1;
+  if (S.referrer && clearedNow >= 1) { S.refPending = true; persist(); }
+  syncInvites(Math.max(0, clearedNow));
   show('result');
   if (AUTOPLAY) setTimeout(() => $('#btnNext').click(), 2500);
 }
@@ -157,21 +173,72 @@ function openDaily() {
 }
 
 function applyGrant(c) { if (!c) return; for (const id of c.items || []) meta.grant(id, 'Unlocked'); if (c.premium) meta.premium(true); persist(); refresh(); }
-const refBy = () => { const p = startParam(); return p && /^ref_\d+$/.test(p) ? p.slice(4) : undefined; };
+const refBy = () => S.referrer || undefined;
+const clearedBest = () => Math.max(S.best || 0, Math.max(0, (S.level || 1) - 1));
+async function tryPreparedShare(text) {
+  if (!net.enabled()) return null;
+  try {
+    const r = await Promise.race([
+      net.post('/shareprep', { game: 'deadspan', text }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 1200)),
+    ]);
+    return r && r.id ? r.id : null;
+  } catch (e) { return null; }
+}
+async function syncInvites(cleared) {
+  const cl = Math.max(clearedBest(), cleared || 0);
+  if (S.referrer && cl >= 1 && !S.refInviteePaid) { S.refPending = true; persist(); }
+  if (!net.enabled()) return null;
+  try {
+    const r = await net.post('/ref', { game: 'deadspan', ref: S.referrer || undefined, cleared: cl });
+    if (!r || r.error) return r;
+    let got = 0;
+    if (r.bonus && !S.refInviteePaid) { S.coins += r.bonus; S.refInviteePaid = true; S.refPending = false; got += r.bonus; toast(`Invite bonus: +${fmt(r.bonus)} coins!`); }
+    if (r.claim) { S.coins += r.claim; got += r.claim; toast(`A friend finished level 1! +${fmt(r.claim)} coins`); }
+    S.inviteStats = { invites: r.invites || 0, cleared: r.cleared || 0, earned: r.earned || 0 };
+    persist(); if (got) { SFX.coin(); haptic('success'); } refresh(); renderInviteStats();
+    return r;
+  } catch (e) { return null; }
+}
+async function doShare(text) {
+  const preparedId = await tryPreparedShare(text);
+  const res = await shareInvite(CFG.BOT_USERNAME, text, { preparedId, title: CFG.GAME_NAME });
+  if (res.aborted) return;
+  if (res.method === 'copy' && res.ok) toast('Link copied — send it to a friend!');
+  else if (!res.ok) toast('Could not share just now. Try Copy link in Invite.');
+}
+function renderInviteStats() {
+  const box = $('#inviteStats'); if (!box) return;
+  if (net.enabled() && S.inviteStats) {
+    const s = S.inviteStats;
+    box.innerHTML = `<div><b class="n">${s.invites || 0}</b> friend${(s.invites === 1) ? '' : 's'} joined</div><div>${s.cleared || 0} finished level 1 · you've earned 🪙 ${fmt(s.earned || 0)}</div>`;
+  } else {
+    box.innerHTML = `<p class="blurb">Your link works now. Coin rewards (🪙 ${fmt(CFG.REFERRAL_BONUS)} each, once a friend finishes level 1) start when leaderboards go live.${S.refPending ? ' Your own bonus is saved and will be added then.' : ''}</p>`;
+  }
+}
+function openInvite() {
+  const el = $('#inviteLink'); if (el) el.textContent = inviteLink(CFG.BOT_USERNAME);
+  renderInviteStats();
+  $('#invite').classList.add('on');
+  syncInvites();
+}
+
 $('#btnStyle').onclick = () => meta.open('daily');
 $('#btnPass').onclick = () => meta.open('pass');
 $('#btnRanks').onclick = () => meta.open('ranks');
 $('#btnPlay').onclick = play;
 $('#btnShop').onclick = () => { refresh(); $('#shop').classList.add('on'); };
 $('#btnDaily').onclick = openDaily;
-$('#btnInvite').onclick = () => shareInvite(CFG.BOT_USERNAME, `I'm holding the bridge in Deadspan. Bet you can't beat level ${S.best || S.level}! 🧟`);
+$('#btnInvite').onclick = openInvite;
+$('#btnShareInvite').onclick = () => doShare(`I'm holding the bridge in Deadspan. Bet you can't beat level ${S.best || S.level}! 🧟`);
+$('#btnCopyInvite').onclick = async () => { const r = await copyInvite(CFG.BOT_USERNAME, `I'm holding the bridge in Deadspan. Bet you can't beat my score! 🧟`); toast(r.ok ? 'Link copied — send it to a friend!' : 'Could not copy the link'); };
 $('#btnSound').onclick = () => { S.sound = !S.sound; setSound(S.sound); persist(); refresh(); };
 for (const b of document.querySelectorAll('[data-close]')) b.onclick = () => b.closest('.modal').classList.remove('on');
 document.addEventListener('visibilitychange', () => { const po = document.getElementById('pauseOv'); if (document.hidden || !(po && po.classList.contains('on'))) game.pause(document.hidden); });
 if (inTelegram && window.Telegram.WebApp.onEvent) window.Telegram.WebApp.onEvent('viewportChanged', () => game.resize());
 if (IS_PORTAL) {
   // no Telegram invites, no Stars shop, no cross-links or outgoing links on web portals
-  for (const sel of ['#btnInvite', '#starList', '#moreGames', '#menu footer']) { const el = $(sel); if (el) el.style.display = 'none'; }
+  for (const sel of ['#btnInvite', '#btnShareScore', '#starList', '#moreGames', '#menu footer']) { const el = $(sel); if (el) el.style.display = 'none'; }
   const sl = $('#starList'); if (sl && sl.previousElementSibling && sl.previousElementSibling.tagName === 'H3') sl.previousElementSibling.style.display = 'none';
   // Poki/CrazyGames ad UX: 🎬 icon on every rewarded button, plain continue button above them
   for (const b of document.querySelectorAll('button.ad')) b.textContent = b.textContent.replace(/^▶/, '🎬');
@@ -185,6 +252,7 @@ if (IS_PORTAL) {
 Ads.preload();
 if (!IS_PORTAL) Payments.claim().then(c => { if (c && ((c.items || []).length || c.premium)) { applyGrant(c); toast('Purchase delivered!'); } });
 meta.checkRewards();
+syncInvites();
 refresh();
 loadAssets(p => { $('#loadFill').style.width = Math.round(p * 100) + '%'; }).then(() => {
   game.bg = null; meta.reapply(); show('menu'); loadingDone();

@@ -6,6 +6,8 @@
 //   POST /score     {initData, game, level, score, kills, win, dur, cos:{frame,title}, ref}  -> {ok}
 //   POST /lb        {initData, game, board: day|week|all|friends} -> {top:[{name,score,frame,title,me}], me:{rank,score}}
 //   POST /rewards   {initData, game}           -> {rewards:[{week,rank,coins,badges}]}  last week's prizes, once
+//   POST /ref       {initData, game, ref?, cleared?} -> {bonus, claim, invites, cleared, earned}  invite coins (500 each after invitee finishes level/night 1, once)
+//   POST /shareprep {initData, text}           -> {id}  prepared inline message for Telegram.WebApp.shareMessage (needs BOT_TOKEN)
 // Bindings: BOT_TOKEN (secret), WEBHOOK_SECRET (secret), GAME_URL (var), DB (D1 database, schema.sql)
 // Rewards are in-game coins and cosmetic badges only. No cash, crypto or anything transferable.
 
@@ -26,6 +28,7 @@ const PRIZES = [
 ];
 const BADGES = new Set(PRIZES.flatMap(p => p.badges));
 const MAX_LEVEL = 1000, LEVEL_JUMP = 3, MIN_GAP_MS = 8000, MIN_WIN_SECS = 12, TOP_N = 50;
+const INVITE_COINS = 500; // coins each for inviter and invitee, once, after the invitee finishes level/night 1. Coins only, no cash.
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json', ...CORS } });
@@ -121,6 +124,59 @@ async function claimRewards(env, user, game) {
   return { rewards: rows.map(r => ({ week: r.week, rank: r.rank, coins: r.coins, badges: JSON.parse(r.badges || '[]') })) };
 }
 
+
+// Invite rewards: one referrer per invitee, both get INVITE_COINS once the invitee has cleared level/night 1.
+// The client applies `bonus` (invitee) and `claim` (inviter) to the local coin balance. Coins only, no cash.
+async function handleRef(env, user, b) {
+  const uid = String(user.id);
+  const ref = /^\d{1,15}$/.test(String(b.ref || '')) ? String(b.ref) : null;
+  const cleared = Math.max(0, Math.floor(Number(b.cleared) || 0));
+  if (ref && ref !== uid) {
+    await env.DB.prepare('INSERT OR IGNORE INTO invites (invitee, referrer, game, at, cleared, invitee_paid, referrer_claimed) VALUES (?,?,?,?,0,0,0)').bind(uid, ref, GAMES.includes(b.game) ? b.game : 'deadspan', Date.now()).run();
+    await env.DB.batch([
+      env.DB.prepare('INSERT OR IGNORE INTO friends (a, b) VALUES (?,?)').bind(uid, ref),
+      env.DB.prepare('INSERT OR IGNORE INTO friends (a, b) VALUES (?,?)').bind(ref, uid),
+    ]);
+  }
+  let bonus = 0, claim = 0;
+  const mine = await env.DB.prepare('SELECT referrer, invitee_paid, cleared FROM invites WHERE invitee=?').bind(uid).first();
+  if (mine && cleared >= 1) {
+    await env.DB.prepare('UPDATE invites SET cleared=MAX(cleared, ?) WHERE invitee=?').bind(cleared, uid).run();
+    if (!mine.invitee_paid) {
+      const u = await env.DB.prepare('UPDATE invites SET invitee_paid=1 WHERE invitee=? AND invitee_paid=0').bind(uid).run();
+      if (u.meta && u.meta.changes) bonus = INVITE_COINS;
+    }
+  }
+  const pending = await env.DB.prepare('SELECT COUNT(*) AS n FROM invites WHERE referrer=? AND cleared>=1 AND referrer_claimed=0').bind(uid).first();
+  if (pending && pending.n) {
+    const u = await env.DB.prepare('UPDATE invites SET referrer_claimed=1 WHERE referrer=? AND cleared>=1 AND referrer_claimed=0').bind(uid).run();
+    if (u.meta && u.meta.changes) claim = pending.n * INVITE_COINS;
+  }
+  const stats = await env.DB.prepare('SELECT COUNT(*) AS invites, SUM(CASE WHEN cleared>=1 THEN 1 ELSE 0 END) AS cleared, SUM(CASE WHEN referrer_claimed=1 THEN 1 ELSE 0 END) AS paid FROM invites WHERE referrer=?').bind(uid).first();
+  return { ok: true, bonus, claim, invites: stats && stats.invites || 0, cleared: (stats && stats.cleared) || 0, earned: ((stats && stats.paid) || 0) * INVITE_COINS, coins: INVITE_COINS };
+}
+
+async function prepareShare(env, user, b) {
+  if (!env.BOT_TOKEN) return { error: 'unavailable' };
+  const text = String(b.text || 'Come play Deadspan!').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 180) || 'Come play Deadspan!';
+  const link = `https://t.me/DeadspanGameBot?startapp=ref_${user.id}`;
+  const r = await tg(env, 'savePreparedInlineMessage', {
+    user_id: user.id,
+    result: {
+      type: 'article',
+      id: crypto.randomUUID(),
+      title: 'Deadspan',
+      description: text,
+      input_message_content: { message_text: `${text}\n${link}` },
+      reply_markup: { inline_keyboard: [[{ text: '▶ PLAY DEADSPAN', url: link }]] },
+    },
+    allow_user_chats: true,
+    allow_bot_chats: true,
+    allow_group_chats: true,
+  });
+  return r && r.ok && r.result && r.result.id ? { id: r.result.id } : { error: 'tg_error' };
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -181,6 +237,11 @@ export default {
     if (url.pathname === '/score') { const r = await submitScore(env, user, Object.assign({}, b, { game })); return json(r, r.error ? (r.error === 'rate_limited' ? 429 : 422) : 200); }
     if (url.pathname === '/lb') return json(await board(env, user, game, ['day', 'week', 'all', 'friends'].includes(b.board) ? b.board : 'day'));
     if (url.pathname === '/rewards') return json(await claimRewards(env, user, game));
+    if (url.pathname === '/ref') return json(await handleRef(env, user, Object.assign({}, b, { game })));
+    if (url.pathname === '/shareprep') {
+      const r = await prepareShare(env, user, b);
+      return json(r, r.error ? (r.error === 'unavailable' ? 503 : 502) : 200);
+    }
     return json({ error: 'not_found' }, 404);
   },
   // Cron (wrangler.toml): freeze last week's prizes and prune old daily/weekly rows (free D1 limits are generous, this keeps it small).

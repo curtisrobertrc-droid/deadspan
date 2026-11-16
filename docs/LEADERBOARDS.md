@@ -16,10 +16,12 @@ Until `LEADERBOARDS` is switched on, both games already work offline: personal b
 | `GET /health` | Liveness: Worker + D1 are up. Does not need `BOT_TOKEN`. |
 | `POST /score` | Records a finished run (levels/nights cleared × 10,000 + run points). Keeps the best per day, ISO week and all-time. |
 | `POST /lb` | Top 50 plus your own rank, for **Today / This week / All-time / Friends**. Requires valid Telegram `initData` (not a public unauthenticated read). |
+| `POST /ref` | Invite rewards. Stores referrer→invitee once per invitee. After the invitee finishes level/night 1, both players get **500 coins** (once). The client applies `bonus` (invitee) and `claim` (inviter). Coins only, no cash. |
+| `POST /shareprep` | Optional prepared Telegram message id for `Telegram.WebApp.shareMessage`. Needs `BOT_TOKEN`; the client falls back to `t.me/share` if this fails. |
 | `POST /rewards` | Pays last week's prizes once: **#1** 15,000 coins (same as the 120⭐ coin pack) + Gold frame + "Weekly Champion" title · **#2–3** 5,000 coins (same as the 50⭐ pack) + Silver · **#4–10** 1,500 + Bronze · **top 100** 500 coins + Top 100 frame. In-game only. No cash, crypto or anything tradeable. |
 | `POST /invoice`, `/claim`, `/webhook` | Telegram Stars: premium season pass (150⭐) and Gold bundle (100⭐) per game. **Cosmetic only.** Upgrades are coin-earned and capped, so Stars buy no power. |
 
-Friends: a player who first arrives through someone's invite link (`?startapp=ref_<id>`) becomes friends with the inviter, in both games.
+Friends and invites: a player who first arrives through someone's invite link (`https://t.me/DeadspanGameBot?startapp=ref_<id>`) is stored as their invitee (once) and becomes friends with the inviter, in both games. The share button and Invite panel work before leaderboards are on; coin rewards stay queued until `LEADERBOARDS` is enabled and `BOT_TOKEN` is set.
 
 Safety and anti-cheat: every request checks Telegram's signed `initData` (HMAC with the bot token, max age 24h). Other checks:
 - At most 1 score per 8 s per player.

@@ -8,3 +8,5 @@ CREATE INDEX IF NOT EXISTS purchases_pending ON purchases (uid, game, delivered)
 CREATE TABLE IF NOT EXISTS rewards (game TEXT NOT NULL, week TEXT NOT NULL, uid TEXT NOT NULL, rank INTEGER NOT NULL, coins INTEGER NOT NULL, badges TEXT, claimed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (game, week, uid));
 CREATE INDEX IF NOT EXISTS rewards_user ON rewards (game, uid, claimed);
 CREATE TABLE IF NOT EXISTS weeks_done (game TEXT NOT NULL, week TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (game, week));
+CREATE TABLE IF NOT EXISTS invites (invitee TEXT PRIMARY KEY, referrer TEXT NOT NULL, game TEXT NOT NULL, at INTEGER NOT NULL, cleared INTEGER NOT NULL DEFAULT 0, invitee_paid INTEGER NOT NULL DEFAULT 0, referrer_claimed INTEGER NOT NULL DEFAULT 0);
+CREATE INDEX IF NOT EXISTS invites_referrer ON invites (referrer);
