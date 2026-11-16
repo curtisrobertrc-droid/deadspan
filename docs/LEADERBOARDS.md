@@ -8,7 +8,7 @@ Until it's deployed, both games already work offline: personal bests (today / th
 |---|---|
 | `POST /score` | Records a finished run (levels/nights cleared × 10,000 + run points). Keeps the best per day, ISO week and all-time. |
 | `POST /lb` | Top 50 plus your own rank, for **Today / This week / All-time / Friends**. |
-| `POST /rewards` | Pays last week's prizes once: **#1** 5,000 coins + Gold frame + "Weekly Champion" title · **#2–3** 3,000 + Silver · **#4–10** 1,500 + Bronze · **top 100** 500 coins + Top 100 frame. In-game only. No cash, crypto or anything tradeable. |
+| `POST /rewards` | Pays last week's prizes once: **#1** 15,000 coins (same as the 120⭐ coin pack) + Gold frame + "Weekly Champion" title · **#2–3** 5,000 coins (same as the 50⭐ pack) + Silver · **#4–10** 1,500 + Bronze · **top 100** 500 coins + Top 100 frame. In-game only. No cash, crypto or anything tradeable. |
 | `POST /invoice`, `/claim`, `/webhook` | Telegram Stars: premium season pass (150⭐) and Gold bundle (100⭐) per game. **Cosmetic only.** Upgrades are coin-earned and capped, so Stars buy no power. |
 
 Friends: a player who first arrives through someone's invite link (`?startapp=ref_<id>`) becomes friends with the inviter, in both games.

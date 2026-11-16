@@ -1,5 +1,5 @@
 import { CFG, AUTOPLAY, DEVOK } from './config.js';
-import { IS_PORTAL, TARGET, gameplay, loadingDone, PortalAds, onAdMute } from './portal.js';
+import { IS_PORTAL, TARGET, gameplay, loadingDone, PortalAds, onAdMute, portalScore } from './portal.js?v2';
 import { tg, initPlatform, inTelegram, loadLocal, loadCloud, save, haptic, startParam, shareInvite, userId } from './platform.js';
 import { Ads } from './ads.js';
 import { Payments } from './payments.js';
@@ -7,7 +7,7 @@ import { setSound, setAdMute, unlockAudio, SFX } from './audio.js';
 onAdMute(setAdMute);
 import { Game, fmt, levelInfo } from './game.js?v7';
 import { loadAssets } from './assets.js?v7';
-import { createMeta } from './meta.js?v8';
+import { createMeta } from './meta.js?v10';
 import { CATALOG, CATS, applyTo } from './catalog.js?v7';
 
 initPlatform();
@@ -47,7 +47,7 @@ const net = {
   post: (path, body) => fetch(CFG.BACKEND_URL + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ initData: tg.initData }, body)) }).then(r => r.json()),
 };
 const CAT_BY_ID = Object.fromEntries(CATALOG.map(i => [i.id, i]));
-const meta = createMeta({ getS: () => S, persist, game: 'deadspan', catalog: CATALOG, cats: CATS, toast: m => toast(m), fmt, sfx: () => SFX.coin(),
+const meta = createMeta({ portal: IS_PORTAL, getS: () => S, persist, game: 'deadspan', catalog: CATALOG, cats: CATS, toast: m => toast(m), fmt, sfx: () => SFX.coin(),
   apply: eq => applyTo(game, eq, CAT_BY_ID), net, refresh: () => refresh(), metricLabel: v => `Lv ${Math.floor(v / 10000)} · ${fmt(v % 10000)} pts` });
 if (DEVOK) window.__meta = meta;
 
@@ -116,6 +116,7 @@ function showResult(r) {
   // season XP + personal best / leaderboard (score = levels cleared x10000 + run points)
   meta.addXp(r.kills * 0.6 + (r.win ? 40 + r.L * 2 : 10));
   const cleared = r.win ? r.L : r.L - 1, pts = Math.min(9999, r.kills * 3 + (r.peak || 0));
+  if (cleared > 0 && IS_PORTAL) portalScore(cleared * 10000 + pts);
   if (cleared > 0) meta.recordRun(cleared * 10000 + pts, cleared, { kills: r.kills, win: r.win, dur: Math.round(game.t - (game.runT0 || 0)), ref: refBy() });
   S.coins += earned; if (r.win) { S.level = Math.max(S.level, r.L + 1); S.best = Math.max(S.best, r.L); } persist(); refresh();
   let doubled = false; const collect = mult => { if (mult > 1 && !doubled) { doubled = true; S.coins += earned * (mult - 1); persist(); refresh(); } };

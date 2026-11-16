@@ -17,10 +17,10 @@ const PRODUCTS = {
   op_gold: { game: 'outpost', title: 'Gold Outpost bundle', description: 'Gold Plated turrets + Gold Bars wall + Rainbow tracers (cosmetic only).', stars: 100, items: ['tu_gold', 'wl_gold', 'tr_rainbow'] },
 };
 const GAMES = ['deadspan', 'outpost'];
-// Weekly prizes (ISO week, UTC). Badge ids must exist in both games' js/catalog.js.
+// Weekly prizes (ISO week, UTC): in-game coin bundles sized like the Stars coin packs + exclusive badges. Badge ids must exist in both games' js/catalog.js.
 const PRIZES = [
-  { upTo: 1, coins: 5000, badges: ['badge_gold', 'ti_champ'] },
-  { upTo: 3, coins: 3000, badges: ['badge_silver'] },
+  { upTo: 1, coins: 15000, badges: ['badge_gold', 'ti_champ'] },  // = the old 120-Star coin pack
+  { upTo: 3, coins: 5000, badges: ['badge_silver'] },              // = the old 50-Star coin pack
   { upTo: 10, coins: 1500, badges: ['badge_bronze'] },
   { upTo: 100, coins: 500, badges: ['badge_top100'] },
 ];
