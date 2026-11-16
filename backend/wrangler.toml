@@ -9,7 +9,7 @@ GAME_URL = "https://curtisrobertrc-droid.github.io/deadspan/"
 [[d1_databases]]
 binding = "DB"
 database_name = "deadspan-arcade"
-database_id = "REPLACE_WITH_D1_ID"
+database_id = "0d096ccc-93f9-4a7e-bfdb-a135540bef82"
 
 # Monday 00:05 UTC: freeze last week's prizes; daily: prune old rows
 [triggers]

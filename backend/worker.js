@@ -1,5 +1,5 @@
 // Deadspan Arcade backend: one Cloudflare Worker (free tier) for BOTH games (Deadspan + Deadspan: Outpost).
-// NOT DEPLOYED. Deploy steps: docs/LEADERBOARDS.md.
+// Deployed at https://deadspan-bot.curtis-robert-rc.workers.dev — remaining steps: docs/LEADERBOARDS.md.
 //   POST /webhook   Telegram updates: /start (Play button), /paysupport, Stars pre-checkout + successful_payment
 //   POST /invoice   {sku, initData}            -> {link}  Telegram Stars invoice (cosmetics / premium pass only)
 //   POST /claim     {initData, game}           -> {items:[], premium}  undelivered purchases for this game
@@ -50,6 +50,7 @@ async function hmac(key, msg) {
 const hex = b => [...b].map(x => x.toString(16).padStart(2, '0')).join('');
 // Validates Mini App initData per https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
 async function verifyInitData(env, initData) {
+  if (!env.BOT_TOKEN) return null;
   const p = new URLSearchParams(initData); const hash = p.get('hash'); if (!hash) return null; p.delete('hash');
   const dcs = [...p.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join('\n');
   const secret = await hmac('WebAppData', env.BOT_TOKEN);
@@ -124,6 +125,12 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
+    // Health works without BOT_TOKEN so we can confirm the Worker and D1 are up before Rob sets the secret.
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
+      let db = false;
+      try { if (env.DB) { await env.DB.prepare('SELECT 1 AS ok').first(); db = true; } } catch {}
+      return json({ ok: true, service: 'deadspan-bot', botTokenConfigured: !!env.BOT_TOKEN, db });
+    }
     if (req.method !== 'POST') return new Response('Deadspan Arcade backend', { headers: CORS });
 
     if (url.pathname === '/webhook') {

@@ -1,0 +1,5 @@
+# Local wrangler state and secrets — never commit
+backend/.wrangler/
+backend/.dev.vars
+.dev.vars
+.env

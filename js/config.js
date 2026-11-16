@@ -6,11 +6,11 @@ export const CFG = {
   BOT_USERNAME: '',            // e.g. 'DeadspanGameBot'
   MINI_APP_SHORT_NAME: '',     // e.g. 'play' (only if created via /newapp)
   // AdsGram rewarded block id (from partner.adsgram.ai). Empty = rewarded ads disabled.
-  ADSGRAM_BLOCK_ID: '',
+  ADSGRAM_BLOCK_ID: '60072',
   ADSGRAM_DEBUG: false,        // true = AdsGram test ads (use while testing in Telegram)
   // Backend (Cloudflare Worker) that creates Telegram Stars invoices. Empty = shop shows "coming soon".
-  BACKEND_URL: '',             // e.g. 'https://deadspan-bot.<sub>.workers.dev'
-  // Leaderboards (needs BACKEND_URL + the D1 database, see docs/LEADERBOARDS.md). false = personal bests + "coming soon".
+  BACKEND_URL: 'https://deadspan-bot.curtis-robert-rc.workers.dev',
+  // Leaderboards stay off until Rob sets the BOT_TOKEN Worker secret (docs/LEADERBOARDS.md). false = personal bests + "coming soon".
   LEADERBOARDS: false,
   // Telegram Stars products: COSMETIC ONLY (no coins, no power), fixed contents, no random rewards (UK loot-box safe).
   STAR_PRODUCTS: [

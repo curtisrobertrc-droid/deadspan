@@ -1,13 +1,21 @@
 # Leaderboards, weekly rewards and Stars cosmetics: backend deploy
 
 One free Cloudflare Worker (`backend/worker.js`) plus one free D1 database serve **both** games (Deadspan and Deadspan: Outpost run on the same Telegram bot).
-Until it's deployed, both games already work offline: personal bests (today / this week / all-time) and a "global leaderboards coming soon" note. Nothing breaks if the backend is down.
+Until `LEADERBOARDS` is switched on, both games already work offline: personal bests (today / this week / all-time) and a "global leaderboards coming soon" note. Nothing breaks if the backend is down.
+
+**Live Worker (deployed):** `https://deadspan-bot.curtis-robert-rc.workers.dev`  
+**Worker name:** `deadspan-bot`  
+**D1 database:** `deadspan-arcade` (`0d096ccc-93f9-4a7e-bfdb-a135540bef82`)  
+**Health:** `GET https://deadspan-bot.curtis-robert-rc.workers.dev/health` — returns `{ok, service, botTokenConfigured, db}` and works before `BOT_TOKEN` is set.
+
+`BACKEND_URL` is already set in both games. `LEADERBOARDS` stays `false` until Rob adds the `BOT_TOKEN` secret below. Score and leaderboard routes reject unsigned requests (`{"error":"unauthorized"}`) and need that token to validate Telegram `initData`.
 
 ## What it does
 | Endpoint | Purpose |
 |---|---|
+| `GET /health` | Liveness: Worker + D1 are up. Does not need `BOT_TOKEN`. |
 | `POST /score` | Records a finished run (levels/nights cleared × 10,000 + run points). Keeps the best per day, ISO week and all-time. |
-| `POST /lb` | Top 50 plus your own rank, for **Today / This week / All-time / Friends**. |
+| `POST /lb` | Top 50 plus your own rank, for **Today / This week / All-time / Friends**. Requires valid Telegram `initData` (not a public unauthenticated read). |
 | `POST /rewards` | Pays last week's prizes once: **#1** 15,000 coins (same as the 120⭐ coin pack) + Gold frame + "Weekly Champion" title · **#2–3** 5,000 coins (same as the 50⭐ pack) + Silver · **#4–10** 1,500 + Bronze · **top 100** 500 coins + Top 100 frame. In-game only. No cash, crypto or anything tradeable. |
 | `POST /invoice`, `/claim`, `/webhook` | Telegram Stars: premium season pass (150⭐) and Gold bundle (100⭐) per game. **Cosmetic only.** Upgrades are coin-earned and capped, so Stars buy no power. |
 
@@ -25,28 +33,40 @@ These are sanity checks. A determined cheater with a modified client can still p
 
 Free-tier fit: D1 free tier is 5M row reads/day, 100k writes/day and 5 GB. A daily cron prunes old daily/weekly rows.
 
-## Deploy (about 15 minutes, once)
-Steps 1 and 4 are Rob's. Everything else we can run once Rob is signed in to Cloudflare on the machine.
-1. **Rob:** create a free Cloudflare account at https://dash.cloudflare.com/sign-up (no card needed, and don't pick any paid plan). Then in a terminal in `deadspan/backend/` run `npx wrangler login` and approve in the browser.
-2. Create the database:
-   `npx wrangler d1 create deadspan-arcade`
-   Copy the `database_id` it prints into `backend/wrangler.toml` (replace `REPLACE_WITH_D1_ID`).
-3. Create the tables:
-   `npx wrangler d1 execute deadspan-arcade --remote --file=schema.sql`
-4. **Rob** sets the secrets himself, so the token never leaves his hands:
-   `npx wrangler secret put BOT_TOKEN` (paste the @BotFather token)
-   `npx wrangler secret put WEBHOOK_SECRET` (any long random string)
-5. Deploy:
-   `npx wrangler deploy`
-   This prints `https://deadspan-bot.<your-subdomain>.workers.dev` and also installs the daily cron (00:05 UTC), which freezes last week's prizes on Mondays.
-6. Point the bot at it. Open this once in a browser, with the real token and secret:
-   `https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://deadspan-bot.<sub>.workers.dev/webhook&secret_token=<WEBHOOK_SECRET>&allowed_updates=["message","pre_checkout_query"]`
-7. Quick check: `curl -X POST https://deadspan-bot.<sub>.workers.dev/lb -d '{}'` should answer `{"error":"unauthorized"}`. That means it's running and rejects unsigned requests.
-8. Switch the games on. In **both** `deadspan/js/config.js` and `outpost/js/config.js`, set:
-   `BACKEND_URL: 'https://deadspan-bot.<sub>.workers.dev'` and `LEADERBOARDS: true`
-   Then commit and push. The Ranks tab goes online, and the Stars shop rows can be bought.
+## Remaining steps (Rob, then we finish)
+
+The Worker, D1 database, schema, and `WEBHOOK_SECRET` are already in place. Do **not** paste the BotFather token into chat.
+
+### 1. Rob: add `BOT_TOKEN` as a Worker secret
+1. Open the Cloudflare dashboard: https://dash.cloudflare.com/a8713fc89f7eaa2a760c9772f346f1d8
+2. Go to **Workers & Pages** → **deadspan-bot** → **Settings** → **Variables and Secrets**.
+3. Click **Add** → choose **Secret**.
+4. Name: `BOT_TOKEN` (exactly).
+5. Value: paste the token you got from @BotFather (the full `number:secret` string). Save.
+
+Do not change or delete the existing `WEBHOOK_SECRET` secret. We already set that.
+
+When this is done, `GET https://deadspan-bot.curtis-robert-rc.workers.dev/health` will show `"botTokenConfigured": true`.
+
+### 2. After `BOT_TOKEN` is set, we will attach the bot webhook
+We'll run this once (token and webhook secret stay off the record — not in this doc or in chat):
+
+```
+https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://deadspan-bot.curtis-robert-rc.workers.dev/webhook&secret_token=<WEBHOOK_SECRET>&allowed_updates=["message","pre_checkout_query"]
+```
+
+That makes `/start` reply with a Play button, and lets Stars pre-checkout and payment updates reach the Worker.
+
+### 3. Then we will switch the games on
+In **both** `deadspan/js/config.js` and `outpost/js/config.js`, set `LEADERBOARDS: true`, commit and push. The Ranks tab goes online, and the Stars shop rows can be bought.
 
 Rollback: set `LEADERBOARDS: false` and push. The games return to offline personal bests. Saves are never stored on the server.
+
+## Already done
+- D1 `deadspan-arcade` created and `schema.sql` applied remotely.
+- Worker `deadspan-bot` deployed to `https://deadspan-bot.curtis-robert-rc.workers.dev` (cron `5 0 * * *` installed).
+- `WEBHOOK_SECRET` set on the Worker (name only in git; value is not in this repo).
+- Both games point `BACKEND_URL` at the Worker, with `LEADERBOARDS: false` until step 3.
 
 ## Optional extras
 - The premium pass note switches from "coming soon" automatically once LEADERBOARDS/BACKEND_URL are set; the track unlocks when a `ds_pass`/`op_pass` purchase is claimed.
