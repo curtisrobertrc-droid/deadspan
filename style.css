@@ -93,3 +93,9 @@ h1.win{color:#9cf05a}h1.lose{color:#ff6b5a}
 .prog{height:12px;border:2px solid #0a0f18;background:#0b1424}
 #hudBar{background:linear-gradient(#c6ff7a,#5fb52a)}
 .more{background:linear-gradient(rgba(36,50,79,.92),rgba(18,26,44,.92));border:3px solid #0a0f18}
+/* web-portal builds (CrazyGames / Poki / itch.io): art-filled side bars in landscape, pause overlay */
+body.portal #wrap::before{content:'';position:absolute;inset:-40px;background:url(assets/img/bg.webp) center/cover;filter:blur(22px) brightness(.5) saturate(1.2)}
+body.portal #wrap canvas{position:relative;box-shadow:0 0 40px rgba(0,0,0,.6)}
+#pauseOv{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;background:rgba(8,12,24,.6);font:900 44px system-ui,sans-serif;color:#fff;text-align:center;text-shadow:0 4px 0 #0a0f18}
+#pauseOv.on{display:flex}
+#pauseOv small{display:block;font-size:16px;opacity:.85;margin-top:6px;text-shadow:none}

@@ -1,8 +1,10 @@
-import { CFG, AUTOPLAY } from './config.js';
+import { CFG, AUTOPLAY, DEVOK } from './config.js';
+import { IS_PORTAL, TARGET, gameplay, loadingDone, PortalAds, onAdMute } from './portal.js';
 import { initPlatform, inTelegram, loadLocal, loadCloud, save, haptic, startParam, shareInvite, userId } from './platform.js';
 import { Ads } from './ads.js';
 import { Payments } from './payments.js';
-import { setSound, unlockAudio, SFX } from './audio.js';
+import { setSound, setAdMute, unlockAudio, SFX } from './audio.js';
+onAdMute(setAdMute);
 import { Game, fmt, levelInfo } from './game.js?v4';
 import { loadAssets } from './assets.js?v4';
 
@@ -35,17 +37,19 @@ const game = new Game($('#cv'), {
   onWeapon: name => { $('#hudWeapon').textContent = name; },
   onEnd: res => showResult(res),
 });
-window.__game = game; // for automated screenshot tests
+if (DEVOK) window.__game = game; // for automated screenshot tests
 
 let revived = false;
-function play() {
+let lastWin = false, lastReviveOffer = -1e9;
+async function play() {
   unlockAudio(); haptic('medium'); revived = false;
+  if (IS_PORTAL) await PortalAds.beforePlay({ afterWin: lastWin });
   show('hud'); $('#hudWeapon').textContent = 'Rifle';
-  game.banked = 0; game.start(S.level, startSquad(), S.up);
+  game.banked = 0; game.start(S.level, startSquad(), S.up); gameplay(true);
 }
 
 function show(id) { for (const el of document.querySelectorAll('.screen')) el.classList.toggle('on', el.id === id); }
-window.__fps = () => game.fps;
+if (DEVOK) window.__fps = () => game.fps;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2600); }
 
 function today() { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
@@ -82,13 +86,13 @@ function refresh() {
 }
 
 function renderMore() {
-  const mg = $('#moreGames'); if (!mg) return; mg.innerHTML = '';
+  const mg = $('#moreGames'); if (!mg || IS_PORTAL) return; mg.innerHTML = '';
   for (const g of CFG.MORE_GAMES || []) { const a = document.createElement('a'); a.className = 'more'; a.href = g.url; a.innerHTML = `<img src="${g.icon}" alt=""><span><span class="k">MORE GAMES</span><br><b>${g.name}</b><small>${g.tag}</small></span>`; mg.appendChild(a); }
 }
 renderMore();
 
 function showResult(r) {
-  S.runs++;
+  S.runs++; gameplay(false); lastWin = r.win;
   const box = $('#result');
   $('#resTitle').textContent = r.win ? (levelInfo(r.L).boss ? 'BOSS DOWN!' : 'BRIDGE CLEARED!') : 'OVERRUN!';
   $('#resTitle').className = r.win ? 'win' : 'lose';
@@ -100,9 +104,12 @@ function showResult(r) {
   let doubled = false; const collect = mult => { if (mult > 1 && !doubled) { doubled = true; S.coins += earned * (mult - 1); persist(); refresh(); } };
   const adBtn = $('#btnDouble'), revBtn = $('#btnRevive');
   adBtn.style.display = Ads.available() && earned > 0 ? '' : 'none';
-  revBtn.style.display = !r.win && !revived && Ads.available() ? '' : 'none';
+  // portals: don't offer a revive ad on every death (CrazyGames rule), at most one offer every 3 minutes
+  const offerRevive = !r.win && !revived && Ads.available() && (!IS_PORTAL || performance.now() - lastReviveOffer > 180000);
+  if (offerRevive && IS_PORTAL) lastReviveOffer = performance.now();
+  revBtn.style.display = offerRevive ? '' : 'none';
   adBtn.onclick = async () => { adBtn.disabled = true; const ok = await Ads.showRewarded(); adBtn.disabled = false; if (ok) { collect(2); SFX.coin(); toast(`Doubled! +${fmt(earned * 2)} coins`); adBtn.style.display = 'none'; $('#resCoins').textContent = '+' + fmt(earned * 2); } else toast('No ad available right now'); };
-  revBtn.onclick = async () => { revBtn.disabled = true; const ok = await Ads.showRewarded(); revBtn.disabled = false; if (ok) { revived = true; show('hud'); game.revive(); } };
+  revBtn.onclick = async () => { revBtn.disabled = true; const ok = await Ads.showRewarded(); revBtn.disabled = false; if (ok) { revived = true; lastWin = false; show('hud'); game.revive(); gameplay(true); } else toast('No ad available right now'); };
   $('#btnNext').textContent = r.win ? `NEXT: LEVEL ${r.L + 1} ▶` : 'TRY AGAIN ↻';
   $('#btnNext').onclick = () => { collect(1); play(); };
   $('#btnMenu').onclick = () => { collect(1); refresh(); show('menu'); };
@@ -137,12 +144,25 @@ $('#btnDaily').onclick = openDaily;
 $('#btnInvite').onclick = () => shareInvite(CFG.BOT_USERNAME, `I'm holding the bridge in Deadspan. Bet you can't beat level ${S.best || S.level}! 🧟`);
 $('#btnSound').onclick = () => { S.sound = !S.sound; setSound(S.sound); persist(); refresh(); };
 for (const b of document.querySelectorAll('[data-close]')) b.onclick = () => b.closest('.modal').classList.remove('on');
-document.addEventListener('visibilitychange', () => game.pause(document.hidden));
+document.addEventListener('visibilitychange', () => { const po = document.getElementById('pauseOv'); if (document.hidden || !(po && po.classList.contains('on'))) game.pause(document.hidden); });
 if (inTelegram && window.Telegram.WebApp.onEvent) window.Telegram.WebApp.onEvent('viewportChanged', () => game.resize());
+if (IS_PORTAL) {
+  // no Telegram invites, no Stars shop, no cross-links or outgoing links on web portals
+  for (const sel of ['#btnInvite', '#starList', '#moreGames', '#menu footer']) { const el = $(sel); if (el) el.style.display = 'none'; }
+  const sl = $('#starList'); if (sl && sl.previousElementSibling && sl.previousElementSibling.tagName === 'H3') sl.previousElementSibling.style.display = 'none';
+  // Poki/CrazyGames ad UX: 🎬 icon on every rewarded button, plain continue button above them
+  for (const b of document.querySelectorAll('button.ad')) b.textContent = b.textContent.replace(/^▶/, '🎬');
+  const nx = $('#btnNext'), first = $('#btnDouble'); if (nx && first) first.parentNode.insertBefore(nx, first);
+  // Esc / P pauses (keyboard players), tap or key resumes
+  const pv = document.createElement('div'); pv.id = 'pauseOv'; pv.innerHTML = '<div>PAUSED<small>Tap or press Esc to resume</small></div>'; document.body.appendChild(pv);
+  const setPause = v => { if (!$('#hud').classList.contains('on')) return; if (v && game.state !== 'play') return; if (!v && game.state !== 'paused') return; game.pause(v); pv.classList.toggle('on', v); gameplay(!v); };
+  window.addEventListener('keydown', e => { if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') setPause(game.state === 'play'); });
+  pv.onclick = () => setPause(false);
+}
 Ads.preload();
-Payments.claim().then(c => { if (c > 0) { S.coins += c; persist(); refresh(); toast(`Purchase delivered: +${fmt(c)} coins`); } });
+if (!IS_PORTAL) Payments.claim().then(c => { if (c > 0) { S.coins += c; persist(); refresh(); toast(`Purchase delivered: +${fmt(c)} coins`); } });
 refresh();
 loadAssets(p => { $('#loadFill').style.width = Math.round(p * 100) + '%'; }).then(() => {
-  game.bg = null; show('menu');
+  game.bg = null; show('menu'); loadingDone();
   if (AUTOPLAY) setTimeout(play, 400);
 });
