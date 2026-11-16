@@ -8,6 +8,7 @@
 //   POST /rewards   {initData, game}           -> {rewards:[{week,rank,coins,badges}]}  last week's prizes, once
 //   POST /ref       {initData, game, ref?, cleared?} -> {bonus, claim, invites, cleared, earned}  invite coins (500 each after invitee finishes level/night 1, once)
 //   POST /shareprep {initData, text}           -> {id}  prepared inline message for Telegram.WebApp.shareMessage (needs BOT_TOKEN)
+//   POST /admin/setup  header X-Admin-Secret == WEBHOOK_SECRET  -> setWebhook + setChatMenuButton + getWebhookInfo (sanitized, no token)
 // Bindings: BOT_TOKEN (secret), WEBHOOK_SECRET (secret), GAME_URL (var), DB (D1 database, schema.sql)
 // Rewards are in-game coins and cosmetic badges only. No cash, crypto or anything transferable.
 
@@ -43,8 +44,58 @@ const cleanName = u => (String(u.username || [u.first_name, u.last_name].filter(
 const cid = v => (typeof v === 'string' && /^[a-z0-9_]{1,24}$/.test(v) ? v : null);
 
 async function tg(env, method, body) {
-  const r = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const r = await fetch(`https://api.telegram.org/bot${env.BOT_TOKEN}/${method}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
   return r.json();
+}
+// Constant-time compare via SHA-256 digests (fixed 32-byte XOR). Empty/missing values never match.
+async function secretEqual(a, b) {
+  const enc = new TextEncoder();
+  const sa = typeof a === 'string' ? a : '';
+  const sb = typeof b === 'string' ? b : '';
+  const [ha, hb] = await Promise.all([
+    crypto.subtle.digest('SHA-256', enc.encode(sa)),
+    crypto.subtle.digest('SHA-256', enc.encode(sb)),
+  ]);
+  const xa = new Uint8Array(ha), xb = new Uint8Array(hb);
+  let diff = 0;
+  for (let i = 0; i < xa.length; i++) diff |= xa[i] ^ xb[i];
+  return diff === 0 && sa.length > 0 && sb.length > 0;
+}
+function sanitizeTg(r) {
+  if (!r || typeof r !== 'object') return { ok: false };
+  return { ok: !!r.ok, description: r.ok ? undefined : String(r.description || r.error || 'tg_error').slice(0, 200) };
+}
+async function adminSetup(req, env) {
+  if (!env.BOT_TOKEN) return json({ error: 'bot_token_missing' }, 503);
+  if (!env.WEBHOOK_SECRET) return json({ error: 'webhook_secret_missing' }, 503);
+  const hookUrl = new URL('/webhook', req.url).href;
+  const gameUrl = env.GAME_URL || 'https://curtisrobertrc-droid.github.io/deadspan/';
+  const webhook = await tg(env, 'setWebhook', {
+    url: hookUrl,
+    secret_token: env.WEBHOOK_SECRET,
+    allowed_updates: ['message', 'pre_checkout_query'],
+  });
+  const menu = await tg(env, 'setChatMenuButton', {
+    menu_button: { type: 'web_app', text: 'Play', web_app: { url: gameUrl } },
+  });
+  const info = await tg(env, 'getWebhookInfo', {});
+  const me = await tg(env, 'getMe', {});
+  const wi = (info && info.result) || {};
+  const bot = (me && me.result) || {};
+  return json({
+    ok: !!(webhook && webhook.ok && menu && menu.ok && info && info.ok),
+    setWebhook: sanitizeTg(webhook),
+    setChatMenuButton: sanitizeTg(menu),
+    bot: me && me.ok ? { id: bot.id, username: bot.username, first_name: bot.first_name } : { ok: false },
+    webhook: {
+      url: wi.url || '',
+      pending_update_count: wi.pending_update_count || 0,
+      allowed_updates: wi.allowed_updates || [],
+      last_error_date: wi.last_error_date || null,
+      last_error_message: wi.last_error_message || null,
+      max_connections: wi.max_connections || null,
+    },
+  });
 }
 async function hmac(key, msg) {
   const k = await crypto.subtle.importKey('raw', typeof key === 'string' ? new TextEncoder().encode(key) : key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -188,6 +239,12 @@ export default {
       return json({ ok: true, service: 'deadspan-bot', botTokenConfigured: !!env.BOT_TOKEN, db });
     }
     if (req.method !== 'POST') return new Response('Deadspan Arcade backend', { headers: CORS });
+
+    // Admin setup is authenticated by the webhook secret, not Telegram initData. Never returns the token.
+    if (url.pathname === '/admin/setup') {
+      if (!await secretEqual(req.headers.get('X-Admin-Secret'), env.WEBHOOK_SECRET)) return json({ error: 'forbidden' }, 403);
+      return adminSetup(req, env);
+    }
 
     if (url.pathname === '/webhook') {
       if (req.headers.get('X-Telegram-Bot-Api-Secret-Token') !== env.WEBHOOK_SECRET) return new Response('forbidden', { status: 403 });

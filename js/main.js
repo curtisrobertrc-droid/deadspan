@@ -7,7 +7,7 @@ import { setSound, setAdMute, unlockAudio, SFX } from './audio.js';
 onAdMute(setAdMute);
 import { Game, fmt, levelInfo } from './game.js?v7';
 import { loadAssets } from './assets.js?v7';
-import { createMeta } from './meta.js?v10';
+import { createMeta } from './meta.js?v11';
 import { CATALOG, CATS, applyTo } from './catalog.js?v7';
 
 initPlatform();
@@ -49,6 +49,7 @@ if (DEVOK) window.__game = game; // for automated screenshot tests
 // cosmetics, daily shop, season pass, leaderboards (cosmetic only; see js/meta.js)
 const net = {
   enabled: () => !!(CFG.LEADERBOARDS && CFG.BACKEND_URL && inTelegram),
+  configured: () => !!(CFG.LEADERBOARDS && CFG.BACKEND_URL),
   post: (path, body) => fetch(CFG.BACKEND_URL + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.assign({ initData: tg.initData }, body)) }).then(r => r.json()),
 };
 const CAT_BY_ID = Object.fromEntries(CATALOG.map(i => [i.id, i]));
