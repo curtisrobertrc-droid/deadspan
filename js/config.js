@@ -10,10 +10,12 @@ export const CFG = {
   ADSGRAM_DEBUG: false,        // true = AdsGram test ads (use while testing in Telegram)
   // Backend (Cloudflare Worker) that creates Telegram Stars invoices. Empty = shop shows "coming soon".
   BACKEND_URL: '',             // e.g. 'https://deadspan-bot.<sub>.workers.dev'
-  // Fixed-content Stars products (no random rewards — UK loot-box safe).
+  // Leaderboards (needs BACKEND_URL + the D1 database, see docs/LEADERBOARDS.md). false = personal bests + "coming soon".
+  LEADERBOARDS: false,
+  // Telegram Stars products: COSMETIC ONLY (no coins, no power), fixed contents, no random rewards (UK loot-box safe).
   STAR_PRODUCTS: [
-    { sku: 'coins_5k',  title: '5,000 coins',  stars: 50 },
-    { sku: 'coins_15k', title: '15,000 coins', stars: 120 },
+    { sku: 'ds_pass', title: 'Premium season pass', desc: 'Unlocks this month\'s premium cosmetic track', stars: 150 },
+    { sku: 'ds_gold', title: 'Gold Squad bundle', desc: 'Solid Gold uniform + Solar flash + Rainbow tracers', stars: 100 },
   ],
   REFERRAL_BONUS: 300,         // coins for a new player who joins via a friend's link
   MORE_GAMES: [

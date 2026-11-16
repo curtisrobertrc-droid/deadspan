@@ -1,7 +1,7 @@
 // Deadspan — zombie bridge runner. Plain canvas, no dependencies. v2: sprite art with pseudo-3D perspective,
 // falls back to the procedural shapes below if an image fails to load.
 import { AUTOPLAY } from './config.js';
-import { IMG, BG, pick } from './assets.js?v4';
+import { IMG, BG, pick } from './assets.js?v7';
 import { haptic as haptic0 } from './platform.js';
 import { SFX as SFX0 } from './audio.js';
 // SIM: silent fast-forward used by the fairness check (no sound, haptics or end-of-run callbacks)
@@ -190,6 +190,10 @@ export class Game {
   }
   pause(v) { if (this.state === 'play' && v) this.state = 'paused'; else if (this.state === 'paused' && !v) { this.state = 'play'; this.last = performance.now(); } }
 
+  // ---------- cosmetics (visual only) ----------
+  tracerCol() { const t = this.cos && this.cos.tracer; return !t ? this.weapon.col : t === 'rainbow' ? `hsl(${(this.t * 240) % 360 | 0},100%,65%)` : t; }
+  killCol(i) { const k = this.cos && this.cos.kill; return k ? k[(Math.random() * k.length) | 0] : i ? '#9b1c1c' : '#6fbf4f'; }
+
   // ---------- helpers ----------
   sy(at) { return this.PY - (at - this.dist); }
   squadR() { return 10 + Math.sqrt(Math.min(this.squad, 400)) * 4.2; }
@@ -231,8 +235,8 @@ export class Game {
       this.kills++; const c = (it.type === 'brute' ? 4 : 1) + Math.floor(this.L / 4); this.coins += c;
       const zn = ZIMG[it.type][it.v % ZIMG[it.type].length]; if (this.ghosts.length < 30) this.ghosts.push({ n: zn, fb: it.type, x: it.x + (it.bo ? it.bo[0] : 0), y: this.sy(it.at) + (it.bo ? it.bo[1] : 0), h: ZH[it.type], t: 0 });
       if (this.cfly.length < 24) { this.P(it.x, this.sy(it.at)); this.cfly.push({ x: this._x, y: this._y - 20 * this._s, t: rnd(-0.05, 0) }); }
-      this.burst(it.x, this.sy(it.at), '#6fbf4f', it.type === 'brute' ? 22 : 9, it.type === 'brute' ? 260 : 170);
-      this.burst(it.x, this.sy(it.at), '#9b1c1c', 5, 120);
+      this.burst(it.x, this.sy(it.at), this.killCol(0), it.type === 'brute' ? 22 : 9, it.type === 'brute' ? 260 : 170);
+      this.burst(it.x, this.sy(it.at), this.killCol(1), 5, 120);
       if (it.type === 'brute') { this.addShake(5); this.pop(it.x, this.sy(it.at) - 20, '+' + c, '#ffd43b', 20); SFX.boom(); } else SFX.kill();
     } else if (it.k === 'crate') {
       const w = WEAPONS[it.pick]; this.weapon = w; SFX.power(); haptic('medium');
@@ -246,7 +250,7 @@ export class Game {
     }
   }
   lose() { if (this.over) return; this.over = true; this.state = 'end'; if (SIM) return; SFX.lose(); haptic('error'); this.addShake(12); setTimeout(() => this.hooks.onEnd({ win: false, L: this.L, coins: this.coins, kills: this.kills, peak: this.peakSquad, progress: Math.min(1, this.dist / this.finishAt) }), 700); }
-  win() { if (this.over) return; this.over = true; this.state = 'end'; if (SIM) return; SFX.win(); haptic('success'); const bonus = 30 + this.L * 10 + (this.info.boss ? 100 + this.L * 15 : 0) + Math.floor(this.squad / 2); this.coins += bonus; this.pop(ROAD_C, this.PY - 120, 'CLEARED!', '#ffd43b', 40); this.burst(ROAD_C, this.PY - 60, '#ffd43b', 40, 300); setTimeout(() => this.hooks.onEnd({ win: true, L: this.L, coins: this.coins, bonus, kills: this.kills, peak: this.peakSquad, squad: this.squad, progress: 1 }), 900); }
+  win() { if (this.over) return; this.over = true; this.state = 'end'; if (SIM) return; SFX.win(); haptic('success'); const bonus = 30 + this.L * 10 + (this.info.boss ? 100 + this.L * 15 : 0) + Math.floor(this.squad / 2); this.coins += bonus; const bn = (this.cos && this.cos.banner) || {}; this.pop(ROAD_C, this.PY - 120, bn.t || 'CLEARED!', bn.c || '#ffd43b', 40); this.burst(ROAD_C, this.PY - 60, '#ffd43b', 40, 300); setTimeout(() => this.hooks.onEnd({ win: true, L: this.L, coins: this.coins, bonus, kills: this.kills, peak: this.peakSquad, squad: this.squad, progress: 1 }), 900); }
 
   // ---------- update ----------
   update(dt) {
@@ -439,7 +443,7 @@ export class Game {
       c.shadowColor = good ? '#38b6ff' : '#ff3030'; c.shadowBlur = 14 * s * this.bs;
       c.lineWidth = Math.max(2, 5 * s); c.strokeStyle = good ? '#0b3d91' : '#7a0a0a'; c.strokeText(txt, tx, ty);
       c.fillStyle = '#fff'; c.fillText(txt, tx, ty); c.shadowBlur = 0;
-      this.spr('soldier', SPR.soldier, X - tot / 2 + iconH * 0.3, ty + iconH * 0.5, iconH, 0, 0, 0, a);
+      this.spr(this.solKey || 'soldier', SPR.soldier, X - tot / 2 + iconH * 0.3, ty + iconH * 0.5, iconH, 0, 0, 0, a);
       if (!it.done) { // shot progress: fills with every hit, ticks the number when full
         const bw = pw * 0.6, bh = Math.max(3, 9 * s), bx = X - bw / 2, by = ty + fs * 0.5; const mx = this.gateMaxed(it, side);
         c.globalAlpha = a; c.fillStyle = 'rgba(5,10,20,.75)'; rr(c, bx - 1, by - 1, bw + 2, bh + 2, bh); c.fill();
@@ -504,8 +508,8 @@ export class Game {
     if (this.bullets.length) {
       c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.beginPath();
       for (const b of this.bullets) { const by = b.y; this.P(b.x, by); c.moveTo(this._x, this._y - 10 * this._s); this.P(b.x - b.vx * 0.022, by - b.vy * 0.022); c.lineTo(this._x, this._y - 10 * this._s); }
-      c.strokeStyle = this.weapon.col; c.globalAlpha = 0.35; c.lineWidth = 4.5; c.stroke();
-      c.strokeStyle = this.weapon.col; c.globalAlpha = 1; c.lineWidth = 1.6; c.stroke();
+      c.strokeStyle = this.tracerCol(); c.globalAlpha = 0.35; c.lineWidth = 4.5; c.stroke();
+      c.strokeStyle = this.tracerCol(); c.globalAlpha = 1; c.lineWidth = 1.6; c.stroke();
       c.globalCompositeOperation = 'source-over';
     }
     // squad: sandbag wall, turret, soldiers
@@ -535,10 +539,10 @@ export class Game {
       const fl = this.muz > 0;
       for (const i of order) {
         this.P(pts[i * 3], pts[i * 3 + 1]); const h = SOL_H * this._s, bob = Math.sin(t * 14 + i) * 0.8 * this._s;
-        const w = this.spr('soldier', SPR.soldier, this._x, this._y + bob, h);
-        if (fl && i % 3 === 0 && IMG.flash) { this.base(); c.globalCompositeOperation = 'lighter'; const fz = 14 * this._s; c.drawImage(pick(IMG.flash, fz * this.bs), this._x + w * 0.32 - fz / 2, this._y - h * 0.82 - fz / 2, fz, fz); c.globalCompositeOperation = 'source-over'; }
+        const w = this.spr(this.solKey || 'soldier', SPR.soldier, this._x, this._y + bob, h);
+        if (fl && i % 3 === 0 && IMG.flash) { this.base(); c.globalCompositeOperation = 'lighter'; const fz = 14 * this._s; c.drawImage(pick(IMG[this.flashKey] || IMG.flash, fz * this.bs), this._x + w * 0.32 - fz / 2, this._y - h * 0.82 - fz / 2, fz, fz); c.globalCompositeOperation = 'source-over'; }
       }
-      if (fl) { this.base(); c.globalCompositeOperation = 'lighter'; const fz = 34 * ts; if (IMG.flash) c.drawImage(pick(IMG.flash, fz * this.bs), tx - fz / 2, ty - th - fz * 0.55, fz, fz); else { c.fillStyle = '#ffe066'; c.beginPath(); c.arc(tx, ty - th, fz / 3, 0, 7); c.fill(); } c.globalCompositeOperation = 'source-over'; }
+      if (fl) { this.base(); c.globalCompositeOperation = 'lighter'; const fz = 34 * ts; if (IMG.flash) c.drawImage(pick(IMG[this.flashKey] || IMG.flash, fz * this.bs), tx - fz / 2, ty - th - fz * 0.55, fz, fz); else { c.fillStyle = '#ffe066'; c.beginPath(); c.arc(tx, ty - th, fz / 3, 0, 7); c.fill(); } c.globalCompositeOperation = 'source-over'; }
       // squad count badge (glossy)
       this.base(); this.P(this.px, this.PY + R * 0.55 + 30); const by = Math.min(this._y, H - 24);
       c.font = '900 22px system-ui,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
@@ -548,7 +552,7 @@ export class Game {
       c.fillStyle = gr; rr(c, bx, by - 15, bw, 30, 13); c.fill();
       c.fillStyle = 'rgba(255,255,255,.35)'; rr(c, bx + 4, by - 13, bw - 8, 10, 6); c.fill();
       c.lineWidth = 4; c.strokeStyle = '#062a5c'; c.strokeText(txt, this.px + 6, by + 1); c.fillStyle = '#fff'; c.fillText(txt, this.px + 6, by + 1);
-      this.spr('soldier', SPR.soldier, bx + 13, by + 10, 20); this.base();
+      this.spr(this.solKey || 'soldier', SPR.soldier, bx + 13, by + 10, 20); this.base();
     }
     // particles (projected)
     for (const p of this.parts) { this.P(p.x, p.y); const r = p.r * this._s * 1.3; c.globalAlpha = 1 - p.t / p.life; c.fillStyle = p.col; c.fillRect(this._x - r, this._y - r - 12 * this._s, r * 2, r * 2); }
