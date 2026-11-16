@@ -1,7 +1,7 @@
 // Deadspan — zombie bridge runner. Plain canvas, no dependencies. v2: sprite art with pseudo-3D perspective,
 // falls back to the procedural shapes below if an image fails to load.
 import { AUTOPLAY } from './config.js';
-import { IMG, BG, pick } from './assets.js?v2';
+import { IMG, BG, pick } from './assets.js?v3';
 import { haptic } from './platform.js';
 import { SFX } from './audio.js';
 
@@ -9,7 +9,10 @@ const W = 400;
 const ROAD_L = 48, ROAD_R = 352, ROAD_C = 200, HALF = ROAD_C - ROAD_L;
 // perspective: depth constant, road half-width per px below the vanishing point, vanishing point height in bg art
 const D = 400, K = 0.39, VPY = 0.332, BGW = 540, BGH = 960;
-const ZH = { zombie: 56, runner: 54, brute: 88 }; // world heights
+const ZH = { zombie: 66, runner: 62, brute: 104 }; // world heights (near-front ~1.4x a soldier)
+const NB = { zombie: 5, runner: 3, brute: 1 };     // visual bodies per gameplay zombie (crowd look; logic unchanged)
+const BOSS_H = 520, SOL_H = 47;
+function bodies(type) { const n = NB[type], o = []; for (let k = 0; k < n; k++) { const a = k * 2.4 + Math.random() * 0.8, r = n === 1 || k === 0 ? 0 : 15 + Math.random() * 12; o.push(Math.cos(a) * r * 1.25, Math.sin(a) * r * 0.8, Math.random() * 6); } return o; }
 const ZIMG = { zombie: ['zombie1', 'zombie2'], runner: ['runner'], brute: ['brute'] };
 function rr(c, x, y, w, h, r) { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); }
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -119,7 +122,7 @@ export class Game {
     this.weapon = WEAPONS.RIFLE; this.fireCd = 0; this.items = []; this.bullets.length = 0; this.parts.length = 0; this.pops.length = 0; this.ghosts.length = 0; this.cfly.length = 0;
     this.boss = null; this.over = false; this.px = this.targetX = ROAD_C; this.endTimer = 0; this.biteCd = 0;
     const R = mulberry(L * 7919 + 13);
-    const hpBase = 1.6 * Math.pow(1.2, L - 1);
+    const hpBase = 1.6 * 1.15 * Math.pow(1.2, L - 1);
     let at = 320, seg = 0;
     while (at < info.length - 250) {
       const prog = at / info.length;
@@ -132,7 +135,7 @@ export class Game {
           if (L >= 3 && prog > 0.3 && R() < 0.05 + Math.min(L, 30) * 0.004) type = 'brute'; else if (L >= 2 && R() < 0.18) type = 'runner';
           const hp = type === 'brute' ? hpBase * 9 : type === 'runner' ? hpBase * 0.7 : hpBase;
           this.items.push({ k: 'z', type, at: at + row * 34 + R() * 14, x: ROAD_L + 26 + col * 50 + R() * 16 - 8, hp, max: hp,
-            r: type === 'brute' ? 19 : 11, sp: type === 'runner' ? 70 : type === 'brute' ? 22 : 38, bite: (type === 'brute' ? 4 : 1) * (1 + Math.floor(L / 6)), flash: 0, wob: R() * 6, v: R() < 0.5 ? 0 : 1 });
+            r: type === 'brute' ? 21 : 15, sp: type === 'runner' ? 70 : type === 'brute' ? 22 : 38, bite: (type === 'brute' ? 4 : 1) * (1 + Math.floor(L / 6)), flash: 0, wob: R() * 6, v: i & 1, bo: bodies(type), shown: NB[type] });
         }
         if (R() < 0.45) { const t = R() < 0.6 ? 'crate' : 'barrel'; this.items.push({ k: t, at: at - 90, x: ROAD_L + 40 + R() * (ROAD_R - ROAD_L - 80), hp: t === 'crate' ? 6 + L * 3.5 : 3 + L, max: t === 'crate' ? 6 + L * 3.5 : 3 + L, r: 16, flash: 0, pick: PICKUPS[Math.floor(R() * PICKUPS.length)] }); }
         at += rows * 34;
@@ -141,7 +144,7 @@ export class Game {
     }
     if (info.boss) {
       const hp = 260 * Math.pow(1.22, L / 5) * L / 3;
-      this.boss = { k: 'boss', at: info.length + 140, x: ROAD_C, hp, max: hp, r: 50, sp: 26, flash: 0, active: false };
+      this.boss = { k: 'boss', at: info.length + 140, x: ROAD_C, hp, max: hp, r: 72, sp: 26, flash: 0, active: false };
     }
     this.finishAt = info.length;
   }
@@ -177,7 +180,7 @@ export class Game {
     it.dead = true;
     if (it.k === 'z') {
       this.kills++; const c = (it.type === 'brute' ? 4 : 1) + Math.floor(this.L / 4); this.coins += c;
-      const zn = ZIMG[it.type][it.v % ZIMG[it.type].length]; if (this.ghosts.length < 30) this.ghosts.push({ n: zn, fb: it.type, x: it.x, y: this.sy(it.at), h: ZH[it.type], t: 0 });
+      const zn = ZIMG[it.type][it.v % ZIMG[it.type].length]; if (this.ghosts.length < 30) this.ghosts.push({ n: zn, fb: it.type, x: it.x + (it.bo ? it.bo[0] : 0), y: this.sy(it.at) + (it.bo ? it.bo[1] : 0), h: ZH[it.type], t: 0 });
       if (this.cfly.length < 24) { this.P(it.x, this.sy(it.at)); this.cfly.push({ x: this._x, y: this._y - 20 * this._s, t: rnd(-0.05, 0) }); }
       this.burst(it.x, this.sy(it.at), '#6fbf4f', it.type === 'brute' ? 22 : 9, it.type === 'brute' ? 260 : 170);
       this.burst(it.x, this.sy(it.at), '#9b1c1c', 5, 120);
@@ -230,7 +233,7 @@ export class Game {
         const ox = shooters === 1 ? 0 : (i / (shooters - 1) - 0.5) * R * 1.6;
         for (let m = 0; m < multi; m++) {
           const a = -Math.PI / 2 + (multi > 1 ? (m - (multi - 1) / 2) * w.spread : rnd(-w.spread, w.spread));
-          this.bullets.push({ x: this.px + ox, y: this.PY - 14 - Math.random() * 22, vx: Math.cos(a) * 760, vy: Math.sin(a) * 760, d: per, p: w.pierce, col: w.col, hit: null });
+          this.bullets.push({ j: Math.random() * 34, x: this.px + ox, y: this.PY - 14, vx: Math.cos(a) * 760, vy: Math.sin(a) * 760, d: per, p: w.pierce, col: w.col, hit: null });
         }
       }
       SFX.shoot(); this.muz = 0.05;
@@ -261,7 +264,7 @@ export class Game {
       if (!b.dead && this.boss && this.boss.active && !this.boss.dead) {
         const bo = this.boss, y = this.sy(bo.at); const dx = b.x - bo.x, dy = b.y - y;
         if (dx * dx + dy * dy < bo.r * bo.r) { bo.hp -= b.d; bo.flash = 0.06; b.dead = true; if (Math.random() < 0.15) this.burst(b.x, b.y, '#6e9b4f', 2, 90);
-          if (bo.hp <= 0) { bo.dead = true; this.addShake(14); haptic('heavy'); SFX.boom(); this.burst(bo.x, y, '#6e9b4f', 60, 380); this.ghosts.push({ n: 'boss', fb: 'boss', x: bo.x, y, h: 200, t: 0 }); this.burst(bo.x, y, '#ffde3b', 30, 260); this.kills++; this.win(); } }
+          if (bo.hp <= 0) { bo.dead = true; this.addShake(14); haptic('heavy'); SFX.boom(); this.burst(bo.x, y, '#6e9b4f', 60, 380); this.ghosts.push({ n: 'boss', fb: 'boss', x: bo.x, y, h: BOSS_H, t: 0 }); this.burst(bo.x, y, '#ffde3b', 30, 260); this.kills++; this.win(); } }
       }
     }
     this.bullets = this.bullets.filter(b => !b.dead);
@@ -397,21 +400,33 @@ export class Game {
     dl.sort((a, b) => a.yy - b.yy);
     // shadows pass (one transform, cheap)
     this.base();
-    for (const it of dl) { if (it.k === 'g') continue; this.P(it.x, it.yy); const w = (it.k === 'boss' ? 140 : it.k === 'z' ? (it.type === 'brute' ? 62 : 36) : 40) * this._s; c.globalAlpha = this.farFade(it.yy); c.drawImage(SPR.shadow, this._x - w / 2, this._y - w * 0.16, w, w * 0.32); }
+    for (const it of dl) { if (it.k === 'g') continue; this.P(it.x, it.yy); const w = (it.k === 'boss' ? 340 : it.k === 'z' ? (it.type === 'brute' ? 74 : NB[it.type] > 1 ? 90 : 44) : 40) * this._s; c.globalAlpha = this.farFade(it.yy); c.drawImage(SPR.shadow, this._x - w / 2, this._y - w * 0.16, w, w * 0.32); }
     c.globalAlpha = 1;
-    const t = this.t;
+    const t = this.t; this.bodyDraws = 0;
     for (const it of dl) {
       const y = it.yy;
       if (it.k === 'g') { this.drawGate(it, y); continue; }
       this.P(it.x, y); const X = this._x, Y = this._y, s = this._s, fade = this.farFade(y);
       if (it.k === 'z') {
-        const ph = t * (it.type === 'runner' ? 14 : it.type === 'brute' ? 6 : 9) + it.wob;
-        const h = ZH[it.type] * s, n = ZIMG[it.type][it.v % ZIMG[it.type].length];
-        const bob = Math.abs(Math.sin(ph)) * 2.5 * s;
-        this.spr(n, SPR[it.type], X, Y - bob, h, Math.sin(ph) * 0.09, Math.sin(ph * 2) * 0.04, it.flash, fade);
+        const sp = it.type === 'runner' ? 14 : it.type === 'brute' ? 6 : 9;
+        const h = ZH[it.type] * s, imgs = ZIMG[it.type], nb = NB[it.type];
+        const vis = Math.max(1, Math.ceil(nb * Math.max(0, it.hp) / it.max));
+        if (vis < it.shown) { // a body in the cluster drops: small pop
+          for (let k = vis; k < it.shown; k++) { const bx = it.x + it.bo[k * 3], by = y + it.bo[k * 3 + 1]; if (this.ghosts.length < 30) this.ghosts.push({ n: imgs[(it.v + k) % imgs.length], fb: it.type, x: bx, y: by, h: ZH[it.type], t: 0 }); this.burst(bx, by, '#6fbf4f', 4, 130); }
+          it.shown = vis;
+        }
+        const cheap = s < this.s0 * 0.42 || this.bodyDraws > 300; // far-back crowd: no tilt/squash, skip extra bodies when over budget
+        for (let k = vis - 1; k >= 0; k--) {
+          if (k > 0 && this.bodyDraws > 420) break;
+          const ox = it.bo[k * 3], oz = it.bo[k * 3 + 1], ph = t * sp + it.wob + it.bo[k * 3 + 2];
+          this.P(it.x + ox, y + oz); const bX = this._x, bY = this._y, bs2 = this._s, bh = ZH[it.type] * bs2;
+          const n = imgs[(it.v + k) % imgs.length]; this.bodyDraws++;
+          if (cheap) this.spr(n, SPR[it.type], bX, bY, bh, 0, 0, it.flash, fade);
+          else this.spr(n, SPR[it.type], bX, bY - Math.abs(Math.sin(ph)) * 2.5 * bs2, bh, Math.sin(ph) * 0.09, Math.sin(ph * 2) * 0.04, it.flash, fade);
+        }
         if (it.type === 'brute' && it.hp < it.max) { this.base(); const bw = 36 * s; c.fillStyle = '#300'; c.fillRect(X - bw / 2, Y - h - 6 * s, bw, 4 * s); c.fillStyle = '#ff4d4d'; c.fillRect(X - bw / 2, Y - h - 6 * s, bw * it.hp / it.max, 4 * s); }
       } else if (it.k === 'boss') {
-        const sc = 1 + Math.sin(t * 4) * 0.03, h = 200 * s * sc;
+        const sc = 1 + Math.sin(t * 4) * 0.03, h = BOSS_H * s * sc;
         this.spr('boss', SPR.boss, X, Y, h, Math.sin(t * 2) * 0.05, Math.sin(t * 4) * 0.03, it.flash, 1);
       } else {
         const isC = it.k === 'crate', h = (isC ? 48 : 44) * s;
@@ -427,7 +442,7 @@ export class Game {
     this.base();
     if (this.bullets.length) {
       c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.beginPath();
-      for (const b of this.bullets) { this.P(b.x, b.y); c.moveTo(this._x, this._y - 10 * this._s); this.P(b.x - b.vx * 0.03, b.y - b.vy * 0.03); c.lineTo(this._x, this._y - 10 * this._s); }
+      for (const b of this.bullets) { const by = b.y - b.j * Math.min(1, (this.PY - b.y) / 60); this.P(b.x, by); c.moveTo(this._x, this._y - 10 * this._s); this.P(b.x - b.vx * 0.022, by - b.vy * 0.022); c.lineTo(this._x, this._y - 10 * this._s); }
       c.strokeStyle = this.weapon.col; c.globalAlpha = 0.35; c.lineWidth = 4.5; c.stroke();
       c.strokeStyle = this.weapon.col; c.globalAlpha = 1; c.lineWidth = 1.6; c.stroke();
       c.globalCompositeOperation = 'source-over';
@@ -443,9 +458,12 @@ export class Game {
       const recoil = this.muz > 0 ? 2 * ts : 0;
       this.spr('turret', null, tx, ty + recoil, th);
       if (!IMG.turret) { this.base(); c.fillStyle = '#2f6fe0'; c.beginPath(); c.arc(tx, ty - th * 0.3, th * 0.3, 0, 7); c.fill(); c.fillRect(tx - 5, ty - th, 10, th * 0.6); }
+      { this.P(this.px, this.PY + 14); const gw = (R * 2.6 + 50) * this._s, gy = this._y; const g = c.createRadialGradient(this._x, gy, 4, this._x, gy, gw / 2);
+        g.addColorStop(0, 'rgba(80,170,255,.45)'); g.addColorStop(0.7, 'rgba(40,120,255,.18)'); g.addColorStop(1, 'rgba(40,120,255,0)');
+        c.save(); c.translate(this._x, gy); c.scale(1, 0.38); c.translate(-this._x, -gy); c.fillStyle = g; c.beginPath(); c.arc(this._x, gy, gw / 2, 0, 7); c.fill(); c.restore(); }
       const pts = this._pts || (this._pts = []); pts.length = 0;
       for (let i = 0; i < n; i++) {
-        const r = n === 1 ? 0 : (R * 0.25 + R * Math.sqrt(i / n) * 0.85), a = i * 2.39996 + 0.6;
+        const r = n === 1 ? 0 : (R * 0.3 + R * Math.sqrt(i / n) * 1.0), a = i * 2.39996 + 0.6;
         let wx = this.px + Math.cos(a) * r, wy = this.PY + 6 + Math.abs(Math.sin(a)) * r * 0.55;
         if (n === 1) { wx = this.px + 24; }
         pts.push(wx, wy, i);
@@ -455,7 +473,7 @@ export class Game {
       order.sort((a, b) => pts[a * 3 + 1] - pts[b * 3 + 1]);
       const fl = this.muz > 0;
       for (const i of order) {
-        this.P(pts[i * 3], pts[i * 3 + 1]); const h = 40 * this._s, bob = Math.sin(t * 14 + i) * 0.8 * this._s;
+        this.P(pts[i * 3], pts[i * 3 + 1]); const h = SOL_H * this._s, bob = Math.sin(t * 14 + i) * 0.8 * this._s;
         const w = this.spr('soldier', SPR.soldier, this._x, this._y + bob, h);
         if (fl && i % 3 === 0 && IMG.flash) { this.base(); c.globalCompositeOperation = 'lighter'; const fz = 14 * this._s; c.drawImage(pick(IMG.flash, fz * this.bs), this._x + w * 0.32 - fz / 2, this._y - h * 0.82 - fz / 2, fz, fz); c.globalCompositeOperation = 'source-over'; }
       }

@@ -1,9 +1,9 @@
 // Deadspan art loader: fetches the WebP sprites, pre-scales them into offscreen canvases (mip levels)
 // and builds white silhouettes for hit flashes. If anything fails the game falls back to procedural shapes.
-export const VERSION = 'v2';
+export const VERSION = 'v3';
 const LIST = ['bg', 'zombie1', 'zombie2', 'runner', 'brute', 'boss', 'soldier', 'turret', 'sandbags', 'coin', 'crate', 'barrel', 'flash', 'gate_blue', 'gate_red'];
 // max on-screen height (CSS px) we ever draw each sprite at; pre-scaled to that x dpr
-const MAXH = { zombie1: 72, zombie2: 72, runner: 70, brute: 110, boss: 250, soldier: 50, turret: 80, sandbags: 60, coin: 26, crate: 60, barrel: 56, flash: 44, gate_blue: 100, gate_red: 100 };
+const MAXH = { zombie1: 100, zombie2: 100, runner: 95, brute: 150, boss: 420, soldier: 60, turret: 90, sandbags: 70, coin: 26, crate: 60, barrel: 56, flash: 44, gate_blue: 100, gate_red: 100 };
 export const IMG = {};   // name -> { w, h, aspect, mips:[canvas...], white:[canvas...] | null }
 export let BG = null;    // raw background image
 let ready = false;

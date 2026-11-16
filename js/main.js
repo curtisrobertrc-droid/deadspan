@@ -3,8 +3,8 @@ import { initPlatform, inTelegram, loadLocal, loadCloud, save, haptic, startPara
 import { Ads } from './ads.js';
 import { Payments } from './payments.js';
 import { setSound, unlockAudio, SFX } from './audio.js';
-import { Game, fmt, levelInfo } from './game.js?v2';
-import { loadAssets } from './assets.js?v2';
+import { Game, fmt, levelInfo } from './game.js?v3';
+import { loadAssets } from './assets.js?v3';
 
 initPlatform();
 const $ = s => document.querySelector(s);
