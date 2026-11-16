@@ -5,7 +5,7 @@ import { Ads } from './ads.js';
 import { Payments } from './payments.js';
 import { setSound, setAdMute, unlockAudio, SFX } from './audio.js';
 onAdMute(setAdMute);
-import { Game, fmt, levelInfo } from './game.js?v4';
+import { Game, fmt, levelInfo } from './game.js?v6';
 import { loadAssets } from './assets.js?v4';
 
 initPlatform();
