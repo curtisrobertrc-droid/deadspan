@@ -4,7 +4,9 @@
 //   POST /invoice   {sku, initData}            -> {link}  Telegram Stars invoice (cosmetics / premium pass only)
 //   POST /claim     {initData, game}           -> {items:[], premium}  undelivered purchases for this game
 //   POST /score     {initData, game, level, score, kills, win, dur, cos:{frame,title}, ref}  -> {ok}
-//   POST /lb        {initData, game, board: day|week|all|friends} -> {top:[{name,score,frame,title,me}], me:{rank,score}}
+//   POST /lb        {initData, game, board: day|week|all|friends, mode?: 'endless'} -> {top:[{name,score,frame,title,me}], me:{rank,score}}
+//                   mode 'endless' (Deadspan only) = a separate board stored under game key 'deadspan_endless'; score = waves*10000 + metres/10.
+//                   Endless boards carry no weekly prizes (finalizeWeek only runs for GAMES).
 //   POST /rewards   {initData, game}           -> {rewards:[{week,rank,coins,badges}]}  last week's prizes, once
 //   POST /ref       {initData, game, ref?, cleared?} -> {bonus, claim, invites, cleared, earned}  invite coins (500 each after invitee finishes level/night 1, once)
 //   POST /shareprep {initData, text}           -> {id}  prepared inline message for Telegram.WebApp.shareMessage (needs BOT_TOKEN)
@@ -29,6 +31,8 @@ const PRIZES = [
 ];
 const BADGES = new Set(PRIZES.flatMap(p => p.badges));
 const MAX_LEVEL = 1000, LEVEL_JUMP = 3, MIN_GAP_MS = 8000, MIN_WIN_SECS = 12, TOP_N = 50;
+const ENDLESS_KEYS = { deadspan: 'deadspan_endless' }, ENDLESS_MIN_SECS_PER_WAVE = 4;
+const boardKey = (game, mode) => (mode === 'endless' && ENDLESS_KEYS[game]) || game;
 const INVITE_COINS = 500; // coins each for inviter and invitee, once, after the invitee finishes level/night 1. Coins only, no cash.
 
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
@@ -120,10 +124,13 @@ async function submitScore(env, user, b) {
   // sanity checks (a modified client can still lie within these bounds; see docs/LEADERBOARDS.md)
   if (!(level >= 1 && level <= MAX_LEVEL)) return { error: 'bad_level' };
   if (!(score >= level * 10000 && score < (level + 1) * 10000)) return { error: 'bad_score' };
+  const endless = game.endsWith('_endless');
   if (b.win && !(Number(b.dur) >= MIN_WIN_SECS)) return { error: 'too_fast' };
+  // endless: level = waves survived; every wave takes several seconds of road, so a run can't be shorter than that
+  if (endless && !(Number(b.dur) >= level * ENDLESS_MIN_SECS_PER_WAVE)) return { error: 'too_fast' };
   const u = await env.DB.prepare('SELECT best_level, last_at FROM users WHERE game=? AND uid=?').bind(game, uid).first();
   if (u && now - u.last_at < MIN_GAP_MS) return { error: 'rate_limited' };
-  if (u && u.best_level > 0 && level > u.best_level + LEVEL_JUMP) return { error: 'level_jump' };
+  if (!endless && u && u.best_level > 0 && level > u.best_level + LEVEL_JUMP) return { error: 'level_jump' };
   const name = cleanName(user); let frame = cid(b.cos && b.cos.frame), title = cid(b.cos && b.cos.title);
   // weekly badges can only be shown by players the server actually awarded them to
   if (BADGES.has(frame) || BADGES.has(title)) {
@@ -291,8 +298,8 @@ export default {
       for (const r of rows) { const p = PRODUCTS[r.sku]; if (!p) continue; if (p.items) out.items.push(...p.items); if (p.premium) out.premium = true; }
       return json(out);
     }
-    if (url.pathname === '/score') { const r = await submitScore(env, user, Object.assign({}, b, { game })); return json(r, r.error ? (r.error === 'rate_limited' ? 429 : 422) : 200); }
-    if (url.pathname === '/lb') return json(await board(env, user, game, ['day', 'week', 'all', 'friends'].includes(b.board) ? b.board : 'day'));
+    if (url.pathname === '/score') { const r = await submitScore(env, user, Object.assign({}, b, { game: boardKey(game, b.mode) })); return json(r, r.error ? (r.error === 'rate_limited' ? 429 : 422) : 200); }
+    if (url.pathname === '/lb') return json(await board(env, user, boardKey(game, b.mode), ['day', 'week', 'all', 'friends'].includes(b.board) ? b.board : 'day'));
     if (url.pathname === '/rewards') return json(await claimRewards(env, user, game));
     if (url.pathname === '/ref') return json(await handleRef(env, user, Object.assign({}, b, { game })));
     if (url.pathname === '/shareprep') {

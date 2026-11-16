@@ -30,7 +30,7 @@ export function pick(entry, pxH, white) {
   for (let i = 1; i < arr.length; i++) { if (arr[i].height >= pxH) m = arr[i]; else break; }
   return m;
 }
-export function loadAssets(onProgress, dpr = Math.min(window.devicePixelRatio || 1, 2)) {
+export function loadAssets(onProgress, dpr = Math.min(window.devicePixelRatio || 1, 3)) {
   let done = 0;
   const base = new URL('../assets/img/', import.meta.url);
   const one = name => new Promise(res => {

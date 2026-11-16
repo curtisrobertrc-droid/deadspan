@@ -145,3 +145,41 @@ button.share{width:100%}
 #inviteStats{background:#0004;border-radius:12px;padding:10px 12px;font-size:14px;line-height:1.45}
 #inviteStats .n{font-size:22px;font-weight:800}
 #invite .blurb{opacity:.85;line-height:1.4;margin:0}
+
+/* ===== v10 crisp text on high-DPR phones =====
+   Blur came from: 2px hard drop shadows (and an 8px glow) under small 11-15px text, which ghost into a smudge at
+   DPR 2.6-3; disabled pass rows dimmed with group opacity; a looping filter animation on claimable rows that keeps
+   the panel's text on a re-rasterised compositor layer; a half-pixel translateX(-50%) on the toast; and the canvas
+   capped at DPR 2 then upscaled on 3x screens (fixed in js/game.js). */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+button{text-shadow:0 1px 0 rgba(0,0,0,.35)}
+.pill{text-shadow:0 1px 0 rgba(0,0,0,.5)}
+.tag{text-shadow:0 1px 0 #000,0 1px 3px rgba(0,0,0,.9)}
+.how{text-shadow:0 1px 0 #000,0 1px 3px rgba(0,0,0,.9)}
+.logo{text-shadow:0 6px 0 #10131c}
+.tabs .tab{text-shadow:none;font-weight:800}
+.tabs .tab.on{text-shadow:none}
+.rw{font-size:12px;font-weight:800;text-shadow:none;color:#fff}
+.rw:disabled{opacity:1;color:rgba(232,238,250,.78)}
+.rw.done,.rw.done:disabled{opacity:1;color:rgba(232,238,250,.5)}
+.rw.done .sw{opacity:.6}
+.rw.can{animation:canGlow 1.2s ease-in-out infinite}
+@keyframes canGlow{50%{box-shadow:0 2px 0 #0a0f18,0 0 0 2px rgba(255,255,255,.55),0 0 14px rgba(140,233,154,.85)}}
+.cos .buy,.lbr,.pbrow,.note,.collbar,.up,.day{text-shadow:none}
+.day.now{animation:dayGlow 1.2s ease-in-out infinite}
+@keyframes dayGlow{50%{box-shadow:0 0 0 2px #fff8,0 0 12px rgba(255,214,90,.9)}}
+.sheet,.card{-webkit-font-smoothing:antialiased}
+#toast{left:0;right:0;margin:0 auto;width:max-content;transform:translateY(20px)}
+#toast.on{transform:none}
+/* Endless mode */
+button.endless{display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 26px;margin-top:-4px;background:linear-gradient(#b48cff 0%,#7b4fe0 48%,#6438cc 52%,#7444d8 100%);box-shadow:inset 0 3px 0 rgba(255,255,255,.35),inset 0 -3px 0 rgba(0,0,0,.2),0 5px 0 #0a0f18}
+button.endless b{font-size:20px;letter-spacing:1px}
+button.endless small{font-size:11px;font-weight:700;opacity:.92}
+#resBest{font-weight:800;font-size:15px;color:#ffd36b}
+.tabs.modes{margin-bottom:2px}
+.tabs.modes .tab.on{background:linear-gradient(#b48cff,#6438cc);color:#fff}
+.card button.big{padding:14px 18px;white-space:nowrap}
+/* short screens (Telegram's header eats ~60px): keep the whole menu on screen */
+@media (max-height:800px){#menu{gap:10px}#menu .logo{font-size:56px}.lvl{padding:5px 18px;font-size:19px}#menu button.big{font-size:26px;padding:11px 46px}.row button{padding:9px 12px}button.endless{padding:7px 22px}}
+@media (max-height:730px){#menu .how,#moreGames{display:none}#menu .logo{font-size:46px}#menu .tag{font-size:13px}#menu{gap:8px;justify-content:flex-start;padding-top:calc(env(safe-area-inset-top) + 64px)}}

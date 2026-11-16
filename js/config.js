@@ -1,7 +1,7 @@
 // Deadspan — runtime config. Everything monetisation-related is OFF until filled in.
 export const CFG = {
   GAME_NAME: 'Deadspan',
-  VERSION: '0.1.0',
+  VERSION: '0.2.0',
   // Telegram bot username (without @), set after Rob creates the bot in @BotFather.
   BOT_USERNAME: 'DeadspanGameBot',
   MINI_APP_SHORT_NAME: '',     // e.g. 'play' (only if created via /newapp)

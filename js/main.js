@@ -5,10 +5,10 @@ import { Ads } from './ads.js';
 import { Payments } from './payments.js';
 import { setSound, setAdMute, unlockAudio, SFX } from './audio.js';
 onAdMute(setAdMute);
-import { Game, fmt, levelInfo } from './game.js?v7';
-import { loadAssets } from './assets.js?v7';
-import { createMeta } from './meta.js?v11';
-import { CATALOG, CATS, applyTo } from './catalog.js?v7';
+import { Game, fmt, levelInfo, ENDLESS } from './game.js?v8';
+import { loadAssets } from './assets.js?v8';
+import { createMeta } from './meta.js?v12';
+import { CATALOG, CATS, applyTo } from './catalog.js?v8';
 
 initPlatform();
 const $ = s => document.querySelector(s);
@@ -34,9 +34,22 @@ const UPS = [
 ];
 const cost = u => Math.round(u.base * Math.pow(u.g, S.up[u.id]));
 const startSquad = () => 1 + S.up.squad;
+// ---- Endless mode economy: coins are halved per kill (game.js), +3 per wave, then capped per run and per day so it
+// never beats grinding the campaign. Run cap ~ 60% of what clearing your current campaign level pays.
+const fmtDist = d => (d >= 10000 ? (d / 10000).toFixed(1) + ' km' : Math.floor(d / 10) + ' m');
+const endlessDay = () => { const k = today(); if (!S.endless || S.endless.day !== k) S.endless = Object.assign({ best: 0, bestDist: 0, runs: 0 }, S.endless || {}, { day: k, dayCoins: 0 }); return S.endless; };
+const endlessRunCap = () => 80 + S.level * 22;
+const endlessRoom = () => { const e = endlessDay(); return Math.max(0, Math.min(endlessRunCap(), endlessRunCap() * 3 - e.dayCoins)); };
+let mode = 'campaign';
 
 const game = new Game($('#cv'), {
   onTick: g => {
+    if (g.endless) {
+      $('#hudLevel').textContent = `∞ WAVE ${g.wave + 1} · ${fmtDist(g.dist)}`;
+      $('#hudCoins').textContent = fmt(S.coins + Math.min(Math.floor(g.coins), g.endlessRoom0 || 0) - (g.banked || 0));
+      $('#hudBar').style.width = ((g.wave % 10) * 10) + '%';
+      return;
+    }
     $('#hudLevel').textContent = 'LEVEL ' + g.L + (g.info.boss ? ' · BOSS' : '');
     $('#hudCoins').textContent = fmt(S.coins + g.coins - (g.banked || 0));
     $('#hudBar').style.width = (Math.min(1, g.dist / g.finishAt) * 100).toFixed(1) + '%';
@@ -54,16 +67,21 @@ const net = {
 };
 const CAT_BY_ID = Object.fromEntries(CATALOG.map(i => [i.id, i]));
 const meta = createMeta({ portal: IS_PORTAL, getS: () => S, persist, game: 'deadspan', catalog: CATALOG, cats: CATS, toast: m => toast(m), fmt, sfx: () => SFX.coin(),
-  apply: eq => applyTo(game, eq, CAT_BY_ID), net, refresh: () => refresh(), metricLabel: v => `Lv ${Math.floor(v / 10000)} · ${fmt(v % 10000)} pts` });
+  apply: eq => applyTo(game, eq, CAT_BY_ID), net, refresh: () => refresh(), modes: [['campaign', '🌉 Campaign'], ['endless', '∞ Endless']],
+  metricLabel: (v, m) => m === 'endless' ? `Wave ${Math.floor(v / 10000)} · ${fmtDist((v % 10000) * 10)}` : `Lv ${Math.floor(v / 10000)} · ${fmt(v % 10000)} pts` });
 if (DEVOK) window.__meta = meta;
 
 let revived = false;
 let lastWin = false, lastReviveOffer = -1e9;
-async function play() {
+async function play(m) {
+  mode = m === 'endless' ? 'endless' : 'campaign';
   unlockAudio(); haptic('medium'); revived = false;
   if (IS_PORTAL) await PortalAds.beforePlay({ afterWin: lastWin });
   show('hud'); $('#hudWeapon').textContent = 'Rifle';
-  game.banked = 0; game.start(S.level, startSquad(), S.up); game.runT0 = game.t; gameplay(true);
+  game.banked = 0;
+  if (mode === 'endless') { endlessDay(); game.endlessRoom0 = endlessRoom(); game.startEndless(startSquad(), S.up); }
+  else game.start(S.level, startSquad(), S.up);
+  game.runT0 = game.t; gameplay(true);
 }
 
 function show(id) { for (const el of document.querySelectorAll('.screen')) el.classList.toggle('on', el.id === id); }
@@ -82,6 +100,7 @@ function refresh() {
   $('#dailyDot').style.display = dailyReady() ? 'block' : 'none';
   if (typeof meta !== 'undefined') $('#passDot').style.display = meta.claimable() ? 'block' : 'none';
   $('#btnSound').textContent = S.sound ? '🔊' : '🔇';
+  { const e = endlessDay(); const eb = $('#endlessBest'); if (eb) eb.textContent = e.best ? `Best: wave ${e.best} · ${fmtDist(e.bestDist)}` : 'Waves never stop. How far can you get?'; }
   $('#shopCoins').textContent = fmt(S.coins);
   const list = $('#upList'); list.innerHTML = '';
   for (const u of UPS) {
@@ -111,6 +130,7 @@ function renderMore() {
 renderMore();
 
 function showResult(r) {
+  if (r.endless) return showEndlessResult(r);
   S.runs++; gameplay(false); lastWin = r.win;
   const box = $('#result');
   $('#resTitle').textContent = r.win ? (levelInfo(r.L).boss ? 'BOSS DOWN!' : 'BRIDGE CLEARED!') : 'OVERRUN!';
@@ -136,6 +156,7 @@ function showResult(r) {
   revBtn.onclick = async () => { revBtn.disabled = true; const ok = await Ads.showRewarded(); revBtn.disabled = false; if (ok) { revived = true; lastWin = false; show('hud'); game.revive(); gameplay(true); } else toast('No ad available right now'); };
   $('#btnNext').textContent = r.win ? `NEXT: LEVEL ${r.L + 1} ▶` : 'TRY AGAIN ↻';
   $('#btnNext').onclick = () => { collect(1); play(); };
+  $('#resBest').style.display = 'none';
   $('#btnMenu').onclick = () => { collect(1); refresh(); show('menu'); };
   const shareBtn = $('#btnShareScore');
   if (shareBtn) {
@@ -152,9 +173,42 @@ function showResult(r) {
   if (AUTOPLAY) setTimeout(() => $('#btnNext').click(), 2500);
 }
 
+// Endless results: separate best (waves + distance), capped coins, own leaderboard board ('endless' mode on /score and /lb)
+function showEndlessResult(r) {
+  S.runs++; gameplay(false); lastWin = false;
+  const e = endlessDay();
+  const total = Math.min(Math.floor(r.coins), game.endlessRoom0 || 0); // whole run incl. before a revive, capped
+  const earned = Math.max(0, total - (game.banked || 0)); game.banked = (game.banked || 0) + earned;
+  e.dayCoins += earned; e.runs++;
+  const isBest = r.wave > e.best || (r.wave === e.best && r.dist > e.bestDist);
+  if (isBest) { e.best = r.wave; e.bestDist = Math.floor(r.dist); }
+  meta.addXp(Math.min(120, r.kills * 0.4 + r.wave * 3));
+  if (r.wave >= 1) meta.recordRun(r.wave * 10000 + Math.min(9999, Math.floor(r.dist / 10)), r.wave, { mode: 'endless', kills: r.kills, win: false, dur: Math.round(game.t - (game.runT0 || 0)) });
+  S.coins += earned; persist(); refresh();
+  $('#resTitle').textContent = 'RUN OVER!'; $('#resTitle').className = 'lose';
+  $('#resSub').textContent = `Endless · wave ${r.wave} · ${fmtDist(r.dist)} · ${r.kills} zombies`;
+  $('#resCoins').textContent = '+' + fmt(game.banked);
+  const rb = $('#resBest'); rb.style.display = ''; rb.textContent = isBest ? '🏅 NEW BEST!' : `Best: wave ${e.best} · ${fmtDist(e.bestDist)}`;
+  if (endlessRoom() <= 0) rb.textContent += ' · daily endless coins reached (campaign still pays)';
+  let doubled = false; const adBtn = $('#btnDouble'), revBtn = $('#btnRevive');
+  adBtn.style.display = Ads.available() && earned > 0 ? '' : 'none';
+  adBtn.onclick = async () => { adBtn.disabled = true; const ok = await Ads.showRewarded(); adBtn.disabled = false; if (ok && !doubled) { doubled = true; S.coins += earned; persist(); refresh(); SFX.coin(); toast(`Doubled! +${fmt(earned * 2)} coins`); adBtn.style.display = 'none'; $('#resCoins').textContent = '+' + fmt(game.banked + earned); } else if (!ok) toast('No ad available right now'); };
+  const offerRevive = !revived && Ads.available() && (!IS_PORTAL || performance.now() - lastReviveOffer > 180000);
+  if (offerRevive && IS_PORTAL) lastReviveOffer = performance.now();
+  revBtn.style.display = offerRevive ? '' : 'none';
+  revBtn.onclick = async () => { revBtn.disabled = true; const ok = await Ads.showRewarded(); revBtn.disabled = false; if (ok) { revived = true; show('hud'); game.revive(); gameplay(true); } else toast('No ad available right now'); };
+  $('#btnNext').textContent = 'RUN AGAIN ↻';
+  $('#btnNext').onclick = () => play('endless');
+  $('#btnMenu').onclick = () => { refresh(); show('menu'); };
+  const shareBtn = $('#btnShareScore');
+  if (shareBtn) { shareBtn.style.display = IS_PORTAL ? 'none' : ''; shareBtn.onclick = () => doShare(`I survived ${r.wave} waves (${fmtDist(r.dist)}) in Deadspan Endless! Think you can last longer? 🧟`); }
+  show('result');
+  if (AUTOPLAY) setTimeout(() => $('#btnNext').click(), 2500);
+}
+
 Game.prototype.revive = function () {
   this.over = false; this.squad = Math.max(5, Math.round(this.peakSquad * 0.3)); this.state = 'play'; this.last = performance.now();
-  for (const it of this.items) if (it.k === 'z') { const y = this.sy(it.at); if (y > this.PY - 260) it.dead = true; }
+  for (const it of this.items) if (it.k === 'z' && !it.dead) { const y = this.sy(it.at); if (y > this.PY - 260) this.zgone(it); }
   if (this.boss && !this.boss.dead) this.boss.at = this.dist + 330;
   this.pop(200, this.PY - 80, 'REVIVED!', '#4dabf7', 34); this.burst(this.px, this.PY, '#4dabf7', 30, 260);
 };
@@ -227,7 +281,8 @@ function openInvite() {
 $('#btnStyle').onclick = () => meta.open('daily');
 $('#btnPass').onclick = () => meta.open('pass');
 $('#btnRanks').onclick = () => meta.open('ranks');
-$('#btnPlay').onclick = play;
+$('#btnPlay').onclick = () => play();
+$('#btnEndless').onclick = () => play('endless');
 $('#btnShop').onclick = () => { refresh(); $('#shop').classList.add('on'); };
 $('#btnDaily').onclick = openDaily;
 $('#btnInvite').onclick = openInvite;

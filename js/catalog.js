@@ -1,6 +1,6 @@
 // Deadspan cosmetics catalogue. Visual only: nothing here changes damage, speed, squad size or rewards.
 // r: free | common | rare | epic | legendary. pass: 'free'|'prem' = season-pass reward. badge: leaderboard reward only.
-import { tinted, thumb } from './assets.js?v7';
+import { tinted, thumb } from './assets.js?v8';
 export const CATS = {
   skin: { n: 'Squad uniform', icon: '🪖' }, tracer: { n: 'Bullet tracer', icon: '✨' }, flash: { n: 'Muzzle flash', icon: '💥' },
   kill: { n: 'Kill effect', icon: '🧟' }, banner: { n: 'Victory banner', icon: '🏁' }, frame: { n: 'Profile frame', icon: '🖼' }, title: { n: 'Title', icon: '🏷' },

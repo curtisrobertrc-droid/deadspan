@@ -1,7 +1,7 @@
 // Deadspan — zombie bridge runner. Plain canvas, no dependencies. v2: sprite art with pseudo-3D perspective,
 // falls back to the procedural shapes below if an image fails to load.
 import { AUTOPLAY } from './config.js';
-import { IMG, BG, pick } from './assets.js?v7';
+import { IMG, BG, pick } from './assets.js?v8';
 import { haptic as haptic0 } from './platform.js';
 import { SFX as SFX0 } from './audio.js';
 // SIM: silent fast-forward used by the fairness check (no sound, haptics or end-of-run callbacks)
@@ -82,6 +82,7 @@ const WEAPONS = {
 };
 const PICKUPS = ['SMG', 'SHOTGUN', 'RAIL'];
 
+export const ENDLESS = { SQUAD_CAP: 150, LV_PER_WAVE: 0.6, COIN_K: 0.5, WAVE_COINS: 3, DASH: 2.8 };
 export function levelInfo(L) { return { boss: L % 5 === 0, length: Math.round((2600 + Math.min(L, 30) * 140) * LEN_K) }; }
 
 export class Game {
@@ -100,7 +101,7 @@ export class Game {
   resize() {
     const vw = window.innerWidth, vh = (window.Telegram && Telegram.WebApp && Telegram.WebApp.viewportStableHeight) || window.innerHeight;
     this.H = clamp(Math.round(vh / vw * W), 620, 900);
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.dpr = Math.min(window.devicePixelRatio || 1, this.dprCap || 3); // was capped at 2: blurry canvas text on 3x phones
     const scale = Math.min(vw / W, vh / this.H);
     this.cssScale = scale;
     this.cv.style.width = W * scale + 'px'; this.cv.style.height = this.H * scale + 'px';
@@ -128,33 +129,60 @@ export class Game {
     this.squad = startSquad; this.peakSquad = startSquad; this.dist = 0; this.coins = 0; this.kills = 0;
     this.weapon = WEAPONS.RIFLE; this.fireCd = 0; this.items = []; this.bullets.length = 0; this.parts.length = 0; this.pops.length = 0; this.ghosts.length = 0; this.cfly.length = 0;
     this.boss = null; this.over = false; this.px = this.targetX = ROAD_C; this.endTimer = 0; this.biteCd = 0;
+    this.endless = false; this.coinK = 1; this.waveQ = []; this.wave = 0; this.dash = false; this.dashK = 1;
     const R = mulberry(L * 7919 + 13);
-    const hpBase = 1.6 * HP_K * Math.pow(1.2, L - 1);
     let at = 320, seg = 0;
     while (at < info.length - 250) {
       const prog = at / info.length;
       if (seg % 2 === 0) { this.items.push(this.makeGates(at, L, R, seg === 0)); }
-      else {
-        const n = Math.round(((4 + L * 1.2) * (0.4 + 1.05 * prog) + R() * (2 + L * 0.5) * (0.5 + prog)) * (seg === 1 ? 0.75 : 1)); /* lighter first wave */ const rows = Math.ceil(n / 6);
-        const keep = Math.max(3, Math.round(n * Math.min(1, Math.sqrt(scale[seg] || 1))));
-        for (let i = 0; i < n; i++) {
-          const row = Math.floor(i / 6), col = i % 6;
-          let type = 'zombie';
-          if (L >= 3 && prog > 0.3 && R() < 0.05 + Math.min(L, 30) * 0.004) type = 'brute'; else if (L >= 2 && R() < 0.18) type = 'runner';
-          const hp = (type === 'brute' ? hpBase * 9 : type === 'runner' ? hpBase * 0.7 : hpBase) * (scale[seg] || 1);
-          if (i < keep) this.items.push({ k: 'z', type, at: at + row * 34 + R() * 14, x: ROAD_L + 26 + col * 50 + R() * 16 - 8, hp, max: hp,
-            r: type === 'brute' ? 21 : 15, sp: type === 'runner' ? 70 : type === 'brute' ? 22 : 38, bite: (type === 'brute' ? 4 : 1) * (1 + Math.floor(L / 6)), flash: 0, wob: R() * 6, v: i & 1, bo: bodies(type), shown: NB[type], seg });
-        }
-        if (R() < 0.45) { const t = R() < 0.6 ? 'crate' : 'barrel'; this.items.push({ k: t, at: at - 90, x: ROAD_L + 40 + R() * (ROAD_R - ROAD_L - 80), hp: t === 'crate' ? 6 + L * 3.5 : 3 + L, max: t === 'crate' ? 6 + L * 3.5 : 3 + L, r: 16, flash: 0, pick: PICKUPS[Math.floor(R() * PICKUPS.length)] }); }
-        at += rows * 34;
-      }
+      else at += this.makeCrowd(at, L, R, prog, seg, scale);
       at += seg % 2 === 0 ? GAP_GATE[0] + R() * GAP_GATE[1] : GAP_CROWD[0] + R() * GAP_CROWD[1]; seg++;
     }
+    // QoL: nothing after the final wave on normal levels (boss levels keep their last gate: the boss is the final wave)
+    if (!info.boss) while (this.items.length && this.items[this.items.length - 1].k === 'g') this.items.pop();
     if (info.boss) {
       const hp = 260 * Math.pow(1.22, L / 5) * L / 3 * (scale.boss || 1);
       this.boss = { k: 'boss', at: info.length + 140, x: ROAD_C, hp, max: hp, r: 72, sp: 26, flash: 0, active: false };
     }
     this.finishAt = info.length;
+  }
+  // one zombie crowd (a "wave"); returns the road length it takes up
+  makeCrowd(at, L, R, prog, seg, scale = {}) {
+    const hpBase = 1.6 * HP_K * Math.pow(1.2, L - 1);
+    const n = Math.round(((4 + L * 1.2) * (0.4 + 1.05 * prog) + R() * (2 + L * 0.5) * (0.5 + prog)) * (seg === 1 ? 0.75 : 1)); /* lighter first wave */ const rows = Math.ceil(n / 6);
+    const keep = Math.max(3, Math.round(n * Math.min(1, Math.sqrt(scale[seg] || 1))));
+    const w = { seg, n: 0 };
+    for (let i = 0; i < n; i++) {
+      const row = Math.floor(i / 6), col = i % 6;
+      let type = 'zombie';
+      if (L >= 3 && prog > 0.3 && R() < 0.05 + Math.min(L, 30) * 0.004) type = 'brute'; else if (L >= 2 && R() < 0.18) type = 'runner';
+      const hp = (type === 'brute' ? hpBase * 9 : type === 'runner' ? hpBase * 0.7 : hpBase) * (scale[seg] || 1);
+      if (i < keep) { w.n++; this.items.push({ k: 'z', type, at: at + row * 34 + R() * 14, x: ROAD_L + 26 + col * 50 + R() * 16 - 8, hp, max: hp,
+        r: type === 'brute' ? 21 : 15, sp: type === 'runner' ? 70 : type === 'brute' ? 22 : 38, bite: (type === 'brute' ? 4 : 1) * (1 + Math.floor(L / 6)), flash: 0, wob: R() * 6, v: i & 1, bo: bodies(type), shown: NB[type], seg, w }); }
+    }
+    if (w.n) this.waveQ.push(w);
+    if (R() < 0.45) { const t = R() < 0.6 ? 'crate' : 'barrel'; this.items.push({ k: t, at: at - 90, x: ROAD_L + 40 + R() * (ROAD_R - ROAD_L - 80), hp: t === 'crate' ? 6 + L * 3.5 : 3 + L, max: t === 'crate' ? 6 + L * 3.5 : 3 + L, r: 16, flash: 0, pick: PICKUPS[Math.floor(R() * PICKUPS.length)] }); }
+    return rows * 34;
+  }
+  // ---------- endless mode ----------
+  // Waves never stop. Difficulty is "effective level" Le = 1 + 0.6 per wave (wave 10 ~ level 7, wave 30 ~ level 19,
+  // wave 50 ~ level 31) and the squad is capped at 150, so the first waves play like level 1 and it climbs steadily until the squad falls.
+  startEndless(startSquad, up, seed = (Math.random() * 1e9) | 0) {
+    this.setupLevel(1, startSquad, up, {}); this.items.length = 0; this.waveQ.length = 0;
+    this.endless = true; this.coinK = ENDLESS.COIN_K; this.finishAt = Infinity; this.info = { boss: false, length: Infinity };
+    this.eR = mulberry(seed); this.genAt = 320; this.genSeg = 0; this.waveN = 0; this.L = 1;
+    this.genEndless(); this.state = 'play';
+  }
+  endlessLevel(waveN) { return 1 + waveN * ENDLESS.LV_PER_WAVE; }
+  genEndless() {
+    const R = this.eR;
+    while (this.genAt < this.dist + 1900) {
+      const Le = this.endlessLevel(this.waveN), Li = Math.max(1, Math.floor(Le));
+      if (this.genSeg % 2 === 0) this.items.push(this.makeGates(this.genAt, Li, R, this.genSeg === 0));
+      else { this.genAt += this.makeCrowd(this.genAt, Le, R, 0.55, this.genSeg === 1 ? 1 : 3); this.waveN++; }
+      this.genAt += this.genSeg % 2 === 0 ? GAP_GATE[0] + R() * GAP_GATE[1] : GAP_CROWD[0] + R() * GAP_CROWD[1]; this.genSeg++;
+    }
+    this.L = Math.max(1, Math.floor(this.endlessLevel(this.wave)));
   }
   makeGates(at, L, R, friendly) {
     const good = () => { const r = R(); if (r < 0.45) return { op: '+', v: Math.round(3 + R() * (4 + L * 1.5)) }; if (r < 0.75) return { op: 'x', v: R() < 0.8 ? 2 : 3 }; return { op: '+', v: Math.round(6 + L * 2) }; };
@@ -222,17 +250,18 @@ export class Game {
   applyGate(g, side) {
     const o = g[side]; const before = this.squad; let s = this.squad;
     if (o.op === '+') s += o.v; else if (o.op === '-') s -= o.v; else if (o.op === 'x') s *= o.v; else s = Math.floor(s / o.v);
-    s = Math.max(1, Math.min(s, 9999)); this.squad = s; /* a red gate hurts but never wipes you out on its own */ this.peakSquad = Math.max(this.peakSquad, s);
+    s = Math.max(1, Math.min(s, this.endless ? ENDLESS.SQUAD_CAP : 9999)); /* endless: capped so firepower can't snowball past the scaling horde */ this.squad = s; /* a red gate hurts but never wipes you out on its own */ this.peakSquad = Math.max(this.peakSquad, s);
     const goodG = s >= before;
     this.pop(this.px, this.PY - 40, (o.op === 'x' ? '×' : o.op) + o.v, goodG ? '#7CFC00' : '#ff4d4d', 34);
     this.burst(this.px, this.PY - 10, goodG ? '#7CFC00' : '#ff4d4d', 18, 240);
     if (goodG) { SFX.gateGood(); haptic('medium'); } else { SFX.gateBad(); haptic('warning'); this.addShake(6); }
     if (this.squad <= 0) this.lose();
   }
+  zgone(it) { if (it.dead) return; it.dead = true; if (it.w) it.w.n--; }
   killItem(it) {
-    it.dead = true;
+    if (it.dead) return; this.zgone(it);
     if (it.k === 'z') {
-      this.kills++; const c = (it.type === 'brute' ? 4 : 1) + Math.floor(this.L / 4); this.coins += c;
+      this.kills++; const c = (it.type === 'brute' ? 4 : 1) + Math.floor(this.L / 4); this.coins += c * this.coinK;
       const zn = ZIMG[it.type][it.v % ZIMG[it.type].length]; if (this.ghosts.length < 30) this.ghosts.push({ n: zn, fb: it.type, x: it.x + (it.bo ? it.bo[0] : 0), y: this.sy(it.at) + (it.bo ? it.bo[1] : 0), h: ZH[it.type], t: 0 });
       if (this.cfly.length < 24) { this.P(it.x, this.sy(it.at)); this.cfly.push({ x: this._x, y: this._y - 20 * this._s, t: rnd(-0.05, 0) }); }
       this.burst(it.x, this.sy(it.at), this.killCol(0), it.type === 'brute' ? 22 : 9, it.type === 'brute' ? 260 : 170);
@@ -249,8 +278,8 @@ export class Game {
       for (const z of this.items) if (!z.dead && z.k === 'z') { const dy = this.sy(z.at) - by, dx = z.x - bx; if (dx * dx + dy * dy < 110 * 110) { z.hp -= 40 + this.L * 12; if (z.hp <= 0) this.killItem(z); } }
     }
   }
-  lose() { if (this.over) return; this.over = true; this.state = 'end'; if (SIM) return; SFX.lose(); haptic('error'); this.addShake(12); setTimeout(() => this.hooks.onEnd({ win: false, L: this.L, coins: this.coins, kills: this.kills, peak: this.peakSquad, progress: Math.min(1, this.dist / this.finishAt) }), 700); }
-  win() { if (this.over) return; this.over = true; this.state = 'end'; if (SIM) return; SFX.win(); haptic('success'); const bonus = 30 + this.L * 10 + (this.info.boss ? 100 + this.L * 15 : 0) + Math.floor(this.squad / 2); this.coins += bonus; const bn = (this.cos && this.cos.banner) || {}; this.pop(ROAD_C, this.PY - 120, bn.t || 'CLEARED!', bn.c || '#ffd43b', 40); this.burst(ROAD_C, this.PY - 60, '#ffd43b', 40, 300); setTimeout(() => this.hooks.onEnd({ win: true, L: this.L, coins: this.coins, bonus, kills: this.kills, peak: this.peakSquad, squad: this.squad, progress: 1 }), 900); }
+  lose() { if (this.over) return; this.over = true; this.state = 'end'; if (SIM) return; SFX.lose(); haptic('error'); this.addShake(12); setTimeout(() => this.hooks.onEnd({ win: false, endless: this.endless, wave: this.wave, dist: this.dist, L: this.L, coins: Math.floor(this.coins), kills: this.kills, peak: this.peakSquad, progress: Math.min(1, this.dist / this.finishAt) }), 700); }
+  win() { if (this.over) return; this.over = true; this.state = 'end'; if (SIM) return; SFX.win(); haptic('success'); const bonus = 30 + this.L * 10 + (this.info.boss ? 100 + this.L * 15 : 0) + Math.floor(this.squad / 2); this.coins += bonus; const bn = (this.cos && this.cos.banner) || {}; this.pop(ROAD_C, this.PY - 120, bn.t || 'CLEARED!', bn.c || '#ffd43b', 40); this.burst(ROAD_C, this.PY - 60, '#ffd43b', 40, 300); this.coins = Math.floor(this.coins); setTimeout(() => this.hooks.onEnd({ win: true, L: this.L, coins: this.coins, bonus, kills: this.kills, peak: this.peakSquad, squad: this.squad, progress: 1 }), 900); }
 
   // ---------- update ----------
   update(dt) {
@@ -271,6 +300,17 @@ export class Game {
     // scroll; stop before boss
     let speed = 125 + Math.min(this.L, 20) * 2;
     if (this.boss) { const bossY = this.sy(this.boss.at); if (bossY > -130) this.boss.active = true; if (bossY > 120) speed = 0; }
+    // waves: a wave is cleared when every zombie in it is gone
+    while (this.waveQ.length && this.waveQ[0].n <= 0) { this.waveQ.shift(); this.wave++;
+      if (this.endless) { this.coins += ENDLESS.WAVE_COINS; if (this.wave % 5 === 0) { this.pop(ROAD_C, this.PY - 150, 'WAVE ' + this.wave + '!', '#ffd43b', 30); SFX.power(); } } }
+    if (this.endless) this.genEndless();
+    // QoL: final wave down on a normal level -> sprint to the line (no gates, pickups or damage left)
+    else if (!this.boss && !this.dash && !this.waveQ.length && !this.items.some(i => !i.dead && i.k === 'g' && !i.done)) {
+      this.dash = true;
+      for (const i of this.items) if (!i.dead && (i.k === 'crate' || i.k === 'barrel')) { i.dead = true; this.burst(i.x, this.sy(i.at), '#c8913f', 8, 140); }
+      this.pop(ROAD_C, this.PY - 130, 'RUN FOR THE LINE!', '#7CFC00', 26); SFX.power(); haptic('light');
+    }
+    if (this.dash) { this.dashK = Math.min(ENDLESS.DASH, this.dashK + dt * 2.6); speed *= this.dashK; this.targetX += (ROAD_C - this.targetX) * Math.min(1, dt * 1.5); }
     this.dist += speed * dt;
 
     // firing
@@ -338,22 +378,22 @@ export class Game {
       if (it.k === 'z') {
         if (y > -40) { it.at -= it.sp * dt; it.x += clamp(this.px - it.x, -1, 1) * it.sp * 0.35 * dt; it.x = clamp(it.x, ROAD_L + 8, ROAD_R - 8); }
         if (Math.abs(y - this.PY) < sr * 0.7 + it.r && Math.abs(it.x - this.px) < sr + it.r) {
-          it.dead = true; this.lastSeg = it.seg; this.squad = Math.max(0, this.squad - it.bite); SFX.bite(); haptic('rigid'); this.addShake(it.bite * 2.5);
+          this.zgone(it); this.lastSeg = it.seg; this.squad = Math.max(0, this.squad - it.bite); SFX.bite(); haptic('rigid'); this.addShake(it.bite * 2.5);
           this.pop(this.px + rnd(-20, 20), this.PY - 30, '-' + it.bite, '#ff4d4d', 22); this.burst(this.px, this.PY, '#c0392b', 8, 160);
           if (this.squad <= 0) { this.lose(); return; }
-        } else if (y > this.H + 40) it.dead = true;
+        } else if (y > this.H + 40) this.zgone(it);
       } else if (it.k === 'g') {
         if (it.flashL > 0) it.flashL -= dt; if (it.flashR > 0) it.flashR -= dt; if (it.bumpL > 0) it.bumpL -= dt; if (it.bumpR > 0) it.bumpR -= dt;
         if (!it.done && y >= this.PY) { it.done = true; this.applyGate(it, this.px < ROAD_C ? 'L' : 'R'); if (this.over) return; }
         if (y > this.H + 60) it.dead = true;
       } else {
         if (Math.abs(y - this.PY) < sr * 0.6 + it.r && Math.abs(it.x - this.px) < sr * 0.8 + it.r) { // ran into it
-          if (it.k === 'barrel') { this.killItem(it); this.squad = Math.max(0, this.squad - 3); this.pop(this.px, this.PY - 30, '-3', '#ff4d4d', 22); if (this.squad <= 0) { this.lose(); return; } }
+          if (it.k === 'barrel' && !this.dash) { this.killItem(it); this.squad = Math.max(0, this.squad - 3); this.pop(this.px, this.PY - 30, '-3', '#ff4d4d', 22); if (this.squad <= 0) { this.lose(); return; } }
           else { it.dead = true; this.burst(it.x, y, '#c8913f', 10, 160); }
         } else if (y > this.H + 40) it.dead = true;
       }
     }
-    if (this.items.length > 200) this.items = this.items.filter(i => !i.dead);
+    if (this.items.length > 200 || (this.endless && this.items.length > 80 && this.items[0].dead)) this.items = this.items.filter(i => !i.dead);
 
     // boss
     const bo = this.boss;
@@ -581,7 +621,8 @@ export class Game {
   loop(now) {
     const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now;
     try { this.update(dt); this.render(); } catch (e) { console.error(e); }
-    this.frames++; if (now - this.fpsT0 >= 1000) { this.fps = this.frames * 1000 / (now - this.fpsT0); this.frames = 0; this.fpsT0 = now; }
+    this.frames++; if (now - this.fpsT0 >= 1000) { this.fps = this.frames * 1000 / (now - this.fpsT0); this.frames = 0; this.fpsT0 = now;
+      if (this.state === 'play' && this.fps < 40 && this.dpr > 2) { this._slow = (this._slow || 0) + 1; if (this._slow >= 3) { this.dprCap = 2; this.resize(); } } else this._slow = 0; }
     if (this.hooks.onTick && this.state === 'play') this.hooks.onTick(this);
     requestAnimationFrame(this.loop);
   }

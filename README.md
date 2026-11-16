@@ -21,6 +21,13 @@ Part of **Deadspan Arcade**, a separate brand for a small family of simple, addi
 
 More from Deadspan Arcade: [Deadspan: Outpost](https://curtisrobertrc-droid.github.io/deadspan-outpost/), a merge tower defence.
 
+## v0.2.0
+- **Endless mode** (∞ on the menu): waves never stop, difficulty climbs 0.6 levels per wave, squad capped at 150, run ends on death.
+  Separate best (waves + distance), separate leaderboard (`mode: 'endless'` on the Worker's /score and /lb, no weekly prizes).
+  Coins are halved per kill, +3 per wave, capped per run (80 + 22 × campaign level) and at 3 runs' worth per day.
+- **Final-wave sprint**: no gates or pickups after a level's last wave; once it's down the squad auto-runs to the line at up to 2.8× speed with no damage.
+- **Crisp text** on 3× phones: lighter text shadows, no group-opacity dimming on pass rows, no looping filter animation in panels, canvas up to DPR 3 (drops to 2 if the phone can't hold 40 fps).
+
 ## Layout
 ```
 index.html, style.css      game shell + UI

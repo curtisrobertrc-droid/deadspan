@@ -21,13 +21,16 @@ function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>>
 export function createMeta(o) {
   const { persist, catalog, cats, toast, fmt } = o;
   const byId = Object.fromEntries(catalog.map(i => [i.id, i]));
-  let S, C, PB;
+  let S, C, PB, PBE;
+  const MODES = o.modes || null; // e.g. [['campaign','Campaign'],['endless','Endless ∞']]: separate personal bests + boards
+  let mode = 'campaign';
   function sync() { // the save object can be replaced (cloud restore), so re-read it on every call
     S = o.getS();
     C = S.cos = Object.assign({ own: [], eq: {}, pass: null }, S.cos || {});
     for (const i of catalog) if (i.r === 'free' && !C.own.includes(i.id)) C.own.push(i.id); // defaults
     for (const k of Object.keys(cats)) if (!C.eq[k] || !C.own.includes(C.eq[k])) { const d = catalog.find(i => i.cat === k && i.r === 'free'); if (d) C.eq[k] = d.id; }
     PB = S.pb = Object.assign({ all: 0, allLv: 0, day: { k: '', v: 0 }, week: { k: '', v: 0 }, runs: 0 }, S.pb || {});
+    PBE = S.pbE = Object.assign({ all: 0, allLv: 0, day: { k: '', v: 0 }, week: { k: '', v: 0 }, runs: 0 }, S.pbE || {});
   }
   sync();
   const owned = id => C.own.includes(id);
@@ -78,11 +81,13 @@ export function createMeta(o) {
   // ---- personal bests (always available) + online boards (when the backend is configured) ----
   function recordRun(score, level, extra = {}) {
     sync();
+    const PB = extra.mode === 'endless' ? PBE : PBc();
     const dk = dayKey(), wk = weekKey(); PB.runs++;
     if (PB.day.k !== dk) PB.day = { k: dk, v: 0 }; if (PB.week.k !== wk) PB.week = { k: wk, v: 0 };
     PB.day.v = Math.max(PB.day.v, score); PB.week.v = Math.max(PB.week.v, score); PB.all = Math.max(PB.all, score); PB.allLv = Math.max(PB.allLv, level); persist();
     if (o.net && o.net.enabled()) o.net.post('/score', Object.assign({ game: o.game, level, score, cos: { frame: C.eq.frame, title: C.eq.title } }, extra)).catch(() => {});
   }
+  function PBc() { return PB; }
   async function checkRewards() {
     sync();
     if (!o.net || !o.net.enabled()) return;
@@ -160,8 +165,10 @@ export function createMeta(o) {
     const tabs = el('<div class="tabs sm"></div>'); body.appendChild(tabs);
     if (o.portal && board === 'friends') board = 'day';
     for (const [k, n] of [['day', 'Today'], ['week', 'This week'], ['all', 'All-time'], ['friends', 'Friends']].filter(x => !o.portal || x[0] !== 'friends')) { const b = el(`<button class="tab ${board === k ? 'on' : ''}">${n}</button>`); b.onclick = () => { board = k; render(); }; tabs.appendChild(b); }
-    const mine = board === 'day' ? (PB.day.k === dayKey() ? PB.day.v : 0) : board === 'week' ? (PB.week.k === weekKey() ? PB.week.v : 0) : PB.all;
-    body.appendChild(el(`<div class="pbrow"><span>Your best ${board === 'day' ? 'today' : board === 'week' ? 'this week' : board === 'friends' ? 'ever' : 'ever'}</span><b>${mine ? o.metricLabel(mine) : '—'}</b></div>`));
+    if (MODES) { const mt = el('<div class="tabs sm modes"></div>'); for (const [k, n] of MODES) { const b = el(`<button class="tab ${mode === k ? 'on' : ''}">${n}</button>`); b.onclick = () => { mode = k; render(); }; mt.appendChild(b); } body.insertBefore(mt, tabs); }
+    const E = MODES && mode === 'endless', P = E ? PBE : PB, label = v => o.metricLabel(v, E ? 'endless' : 'campaign');
+    const mine = board === 'day' ? (P.day.k === dayKey() ? P.day.v : 0) : board === 'week' ? (P.week.k === weekKey() ? P.week.v : 0) : P.all;
+    body.appendChild(el(`<div class="pbrow"><span>Your best ${board === 'day' ? 'today' : board === 'week' ? 'this week' : board === 'friends' ? 'ever' : 'ever'}</span><b>${mine ? label(mine) : '—'}</b></div>`));
     const list = el('<div class="lb"></div>'); body.appendChild(list);
     if (o.portal) { list.appendChild(el(`<div class="pbrow"><span>Runs played</span><b>${fmt(PB.runs || 0)}</b></div>`)); list.appendChild(el('<p class="note">Beat your own records: today, this week and all-time.</p>')); return; }
     if (!o.net || !o.net.enabled()) {
@@ -172,19 +179,20 @@ export function createMeta(o) {
     }
     list.innerHTML = '<p class="note">Loading…</p>';
     try {
-      const r = await o.net.post('/lb', { game: o.game, board }); list.innerHTML = '';
+      const r = await o.net.post('/lb', { game: o.game, board, mode: E ? 'endless' : undefined }); list.innerHTML = '';
       if (!r || !r.top || !r.top.length) { list.appendChild(el('<p class="note">No scores yet. Be the first!</p>')); return; }
       r.top.forEach((e, n) => {
         const fr = byId[e.frame], ti = byId[e.title];
-        list.appendChild(el(`<div class="lbr ${e.me ? 'me' : ''}"><span class="rk">${n + 1}</span><span class="nm" style="${fr && fr.c ? 'border-color:' + (Array.isArray(fr.c) ? fr.c[0] : fr.c) : ''}">${esc(e.name)}${ti && ti.r !== 'free' ? `<small>${esc(ti.name)}</small>` : ''}</span><b>${o.metricLabel(e.score)}</b></div>`));
+        list.appendChild(el(`<div class="lbr ${e.me ? 'me' : ''}"><span class="rk">${n + 1}</span><span class="nm" style="${fr && fr.c ? 'border-color:' + (Array.isArray(fr.c) ? fr.c[0] : fr.c) : ''}">${esc(e.name)}${ti && ti.r !== 'free' ? `<small>${esc(ti.name)}</small>` : ''}</span><b>${label(e.score)}</b></div>`));
       });
-      if (r.me && r.me.rank > r.top.length) list.appendChild(el(`<div class="lbr me"><span class="rk">${r.me.rank}</span><span class="nm">You</span><b>${o.metricLabel(r.me.score)}</b></div>`));
-      if (board === 'week') list.appendChild(el(`<p class="note">Weekly rewards (paid out Monday): #1 15,000 🪙 + Gold frame &amp; Champion title · #2–3 5,000 🪙 + Silver frame · #4–10 1,500 🪙 + Bronze frame · top 100 500 🪙 + Top 100 frame. In-game rewards only.</p>`));
+      if (r.me && r.me.rank > r.top.length) list.appendChild(el(`<div class="lbr me"><span class="rk">${r.me.rank}</span><span class="nm">You</span><b>${label(r.me.score)}</b></div>`));
+      if (board === 'week' && E) list.appendChild(el('<p class="note">Endless boards are for bragging rights: weekly coin prizes are paid on the campaign board only.</p>'));
+      else if (board === 'week') list.appendChild(el(`<p class="note">Weekly rewards (paid out Monday): #1 15,000 🪙 + Gold frame &amp; Champion title · #2–3 5,000 🪙 + Silver frame · #4–10 1,500 🪙 + Bronze frame · top 100 500 🪙 + Top 100 frame. In-game rewards only.</p>`));
       if (board === 'friends' && r.top.length < 2) list.appendChild(el('<p class="note">Invite friends with your link to compete with them here.</p>'));
     } catch (e) { list.innerHTML = '<p class="note">Leaderboard unavailable right now.</p>'; }
   }
   const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  function open(t) { tab = t || tab; render(); modal.classList.add('on'); }
+  function open(t, m) { tab = t || tab; if (m) mode = m; render(); modal.classList.add('on'); }
 
   pass(); persist();
   const reapply = () => { sync(); o.apply(C.eq); };
