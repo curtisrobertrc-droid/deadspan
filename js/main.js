@@ -3,8 +3,8 @@ import { initPlatform, inTelegram, loadLocal, loadCloud, save, haptic, startPara
 import { Ads } from './ads.js';
 import { Payments } from './payments.js';
 import { setSound, unlockAudio, SFX } from './audio.js';
-import { Game, fmt, levelInfo } from './game.js?v3';
-import { loadAssets } from './assets.js?v3';
+import { Game, fmt, levelInfo } from './game.js?v4';
+import { loadAssets } from './assets.js?v4';
 
 initPlatform();
 const $ = s => document.querySelector(s);
@@ -29,7 +29,7 @@ const startSquad = () => 1 + S.up.squad;
 const game = new Game($('#cv'), {
   onTick: g => {
     $('#hudLevel').textContent = 'LEVEL ' + g.L + (g.info.boss ? ' · BOSS' : '');
-    $('#hudCoins').textContent = fmt(S.coins + g.coins);
+    $('#hudCoins').textContent = fmt(S.coins + g.coins - (g.banked || 0));
     $('#hudBar').style.width = (Math.min(1, g.dist / g.finishAt) * 100).toFixed(1) + '%';
   },
   onWeapon: name => { $('#hudWeapon').textContent = name; },
@@ -41,7 +41,7 @@ let revived = false;
 function play() {
   unlockAudio(); haptic('medium'); revived = false;
   show('hud'); $('#hudWeapon').textContent = 'Rifle';
-  game.start(S.level, startSquad(), S.up);
+  game.banked = 0; game.start(S.level, startSquad(), S.up);
 }
 
 function show(id) { for (const el of document.querySelectorAll('.screen')) el.classList.toggle('on', el.id === id); }
@@ -94,8 +94,10 @@ function showResult(r) {
   $('#resTitle').className = r.win ? 'win' : 'lose';
   $('#resSub').textContent = r.win ? `Level ${r.L} · ${r.kills} zombies · peak squad ${fmt(r.peak)}` : `Level ${r.L} · ${Math.round(r.progress * 100)}% across · ${r.kills} zombies`;
   $('#resCoins').textContent = '+' + fmt(r.coins);
-  let earned = r.coins; let collected = false;
-  const collect = mult => { if (collected) return; collected = true; S.coins += earned * mult; if (r.win) { S.level = r.L + 1; S.best = Math.max(S.best, r.L); } persist(); refresh(); };
+  // bank coins straight away (closing the app on this screen used to lose them); a revive only banks the new coins
+  const earned = Math.max(0, r.coins - (game.banked || 0)); game.banked = r.coins;
+  S.coins += earned; if (r.win) { S.level = Math.max(S.level, r.L + 1); S.best = Math.max(S.best, r.L); } persist(); refresh();
+  let doubled = false; const collect = mult => { if (mult > 1 && !doubled) { doubled = true; S.coins += earned * (mult - 1); persist(); refresh(); } };
   const adBtn = $('#btnDouble'), revBtn = $('#btnRevive');
   adBtn.style.display = Ads.available() && earned > 0 ? '' : 'none';
   revBtn.style.display = !r.win && !revived && Ads.available() ? '' : 'none';

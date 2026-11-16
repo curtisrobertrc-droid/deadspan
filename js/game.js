@@ -1,7 +1,7 @@
 // Deadspan — zombie bridge runner. Plain canvas, no dependencies. v2: sprite art with pseudo-3D perspective,
 // falls back to the procedural shapes below if an image fails to load.
 import { AUTOPLAY } from './config.js';
-import { IMG, BG, pick } from './assets.js?v3';
+import { IMG, BG, pick } from './assets.js?v4';
 import { haptic } from './platform.js';
 import { SFX } from './audio.js';
 
@@ -12,6 +12,9 @@ const D = 400, K = 0.39, VPY = 0.332, BGW = 540, BGH = 960;
 const ZH = { zombie: 66, runner: 62, brute: 104 }; // world heights (near-front ~1.4x a soldier)
 const NB = { zombie: 5, runner: 3, brute: 1 };     // visual bodies per gameplay zombie (crowd look; logic unchanged)
 const BOSS_H = 520, SOL_H = 47;
+// v4 spacing: road between a gate pair and the crowd behind it, and between a crowd and the next gate
+const GAP_GATE = [430, 150], GAP_CROWD = [360, 120], LEN_K = 1.3, HP_K = 2.4;
+// shots needed to tick a gate by one step (× and ÷ take longer)
 function bodies(type) { const n = NB[type], o = []; for (let k = 0; k < n; k++) { const a = k * 2.4 + Math.random() * 0.8, r = n === 1 || k === 0 ? 0 : 15 + Math.random() * 12; o.push(Math.cos(a) * r * 1.25, Math.sin(a) * r * 0.8, Math.random() * 6); } return o; }
 const ZIMG = { zombie: ['zombie1', 'zombie2'], runner: ['runner'], brute: ['brute'] };
 function rr(c, x, y, w, h, r) { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); }
@@ -75,7 +78,7 @@ const WEAPONS = {
 };
 const PICKUPS = ['SMG', 'SHOTGUN', 'RAIL'];
 
-export function levelInfo(L) { return { boss: L % 5 === 0, length: 2600 + Math.min(L, 30) * 140 }; }
+export function levelInfo(L) { return { boss: L % 5 === 0, length: Math.round((2600 + Math.min(L, 30) * 140) * LEN_K) }; }
 
 export class Game {
   constructor(canvas, hooks) {
@@ -122,13 +125,13 @@ export class Game {
     this.weapon = WEAPONS.RIFLE; this.fireCd = 0; this.items = []; this.bullets.length = 0; this.parts.length = 0; this.pops.length = 0; this.ghosts.length = 0; this.cfly.length = 0;
     this.boss = null; this.over = false; this.px = this.targetX = ROAD_C; this.endTimer = 0; this.biteCd = 0;
     const R = mulberry(L * 7919 + 13);
-    const hpBase = 1.6 * 1.15 * Math.pow(1.2, L - 1);
+    const hpBase = 1.6 * HP_K * Math.pow(1.2, L - 1);
     let at = 320, seg = 0;
     while (at < info.length - 250) {
       const prog = at / info.length;
-      if (seg % 2 === 0) { this.items.push(this.makeGates(at, L, R)); }
+      if (seg % 2 === 0) { this.items.push(this.makeGates(at, L, R, seg === 0 && L <= 5)); }
       else {
-        const n = Math.round((4 + L * 1.2) * (0.55 + 0.9 * prog) + R() * (2 + L * 0.5)); const rows = Math.ceil(n / 6);
+        const n = Math.round((4 + L * 1.2) * (0.4 + 1.05 * prog) + R() * (2 + L * 0.5) * (0.5 + prog)); const rows = Math.ceil(n / 6);
         for (let i = 0; i < n; i++) {
           const row = Math.floor(i / 6), col = i % 6;
           let type = 'zombie';
@@ -140,7 +143,7 @@ export class Game {
         if (R() < 0.45) { const t = R() < 0.6 ? 'crate' : 'barrel'; this.items.push({ k: t, at: at - 90, x: ROAD_L + 40 + R() * (ROAD_R - ROAD_L - 80), hp: t === 'crate' ? 6 + L * 3.5 : 3 + L, max: t === 'crate' ? 6 + L * 3.5 : 3 + L, r: 16, flash: 0, pick: PICKUPS[Math.floor(R() * PICKUPS.length)] }); }
         at += rows * 34;
       }
-      at += 250 + R() * 110; seg++;
+      at += seg % 2 === 0 ? GAP_GATE[0] + R() * GAP_GATE[1] : GAP_CROWD[0] + R() * GAP_CROWD[1]; seg++;
     }
     if (info.boss) {
       const hp = 260 * Math.pow(1.22, L / 5) * L / 3;
@@ -148,12 +151,12 @@ export class Game {
     }
     this.finishAt = info.length;
   }
-  makeGates(at, L, R) {
+  makeGates(at, L, R, friendly) {
     const good = () => { const r = R(); if (r < 0.45) return { op: '+', v: Math.round(3 + R() * (4 + L * 1.5)) }; if (r < 0.75) return { op: 'x', v: R() < 0.8 ? 2 : 3 }; return { op: '+', v: Math.round(6 + L * 2) }; };
     const bad = () => { const r = R(); if (r < 0.6) return { op: '-', v: Math.round(2 + R() * (3 + L)) }; return { op: '÷', v: 2 }; };
-    let a = good(), b = R() < 0.55 ? bad() : good();
+    let a = good(), b = !friendly && R() < 0.55 ? bad() : good();
     if (R() < 0.5) [a, b] = [b, a];
-    return { k: 'g', at, L: a, R: b, done: false, hitL: 0, hitR: 0, need: 5 + Math.min(L, 20) * 0.5, cap: 12 + L * 2, flashL: 0, flashR: 0 };
+    return { k: 'g', at, L: a, R: b, done: false, hitL: 0, hitR: 0, need: Math.round(3 + Math.min(L, 20) * 0.35), cap: 12 + L * 2, flashL: 0, flashR: 0, bumpL: 0, bumpR: 0 };
   }
 
   start(L, startSquad, up) { this.setupLevel(L, startSquad, up); this.state = 'play'; }
@@ -166,10 +169,28 @@ export class Game {
   burst(x, y, col, n = 8, sp = 160) { for (let i = 0; i < n && this.parts.length < 360; i++) { const a = Math.random() * 6.283, s = rnd(sp * 0.3, sp); this.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rnd(0.3, 0.7), t: 0, col, r: rnd(1.5, 3.5) }); } }
   addShake(v) { this.shake = Math.min(14, this.shake + v); }
 
+  gateNeed(g, side) { const o = g[side]; return Math.ceil(g.need * (o.op === 'x' ? 5 : o.op === '÷' ? 3 : 1)); }
+  gateMaxed(g, side) { const o = g[side]; return (o.op === 'x' ? (o.grown || 0) >= 1 : (o.grown || 0) >= g.cap); }
+  shootGate(g, side, x, y) {
+    g['flash' + side] = 0.06; g.lastHit = this.t;
+    if (this.parts.length < 300) this.parts.push({ x, y: y + 2, vx: rnd(-60, 60), vy: rnd(20, 90), life: 0.25, t: 0, col: '#fff6c0', r: 1.6 });
+    if (this.gateMaxed(g, side)) return;
+    SFX.tick();
+    if (++g['hit' + side] < this.gateNeed(g, side)) return;
+    g['hit' + side] = 0; const o = g[side]; o.grown = (o.grown || 0) + 1; let lab = '+1';
+    if (o.op === '+') o.v++;
+    else if (o.op === '-') { o.v--; lab = ''; if (o.v <= 0) { o.op = '+'; o.v = 1; lab = 'FLIP!'; } }
+    else if (o.op === 'x') { o.v++; lab = '×' + o.v + '!'; }
+    else { o.op = '-'; o.v = 2; o.grown = 0; lab = 'BROKEN!'; }
+    g['bump' + side] = 0.3; SFX.coin(); haptic('light');
+    if (!lab) return; const px = (side === 'L' ? ROAD_L : ROAD_C) + HALF / 2, pp = g['pp' + side];
+    if (lab === '+1' && pp && pp.t < 0.75 && this.pops.includes(pp)) { pp.n++; pp.txt = '+' + pp.n; pp.t = 0.08; return; } // merge into one running "+N"
+    this.pop(px, y, lab, '#7CFC00', 22); const np = this.pops[this.pops.length - 1]; np.oy = 105; np.n = 1; np.fixed = true; np.g = g; g['pp' + side] = np;
+  }
   applyGate(g, side) {
     const o = g[side]; const before = this.squad; let s = this.squad;
     if (o.op === '+') s += o.v; else if (o.op === '-') s -= o.v; else if (o.op === 'x') s *= o.v; else s = Math.floor(s / o.v);
-    s = Math.max(0, Math.min(s, 9999)); this.squad = s; this.peakSquad = Math.max(this.peakSquad, s);
+    s = Math.max(1, Math.min(s, 9999)); this.squad = s; /* a red gate hurts but never wipes you out on its own */ this.peakSquad = Math.max(this.peakSquad, s);
     const goodG = s >= before;
     this.pop(this.px, this.PY - 40, (o.op === 'x' ? '×' : o.op) + o.v, goodG ? '#7CFC00' : '#ff4d4d', 34);
     this.burst(this.px, this.PY - 10, goodG ? '#7CFC00' : '#ff4d4d', 18, 240);
@@ -204,7 +225,7 @@ export class Game {
     this.t += dt;
     for (const p of this.parts) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92; }
     this.parts = this.parts.filter(p => p.t < p.life);
-    for (const p of this.pops) { p.t += dt; p.y -= 40 * dt; }
+    for (const p of this.pops) { p.t += dt; if (!p.fixed) p.y -= 40 * dt; else { p.oy += 30 * dt; if (p.g) p.y = this.sy(p.g.at); } }
     for (const g of this.ghosts) g.t += dt; if (this.ghosts.length) this.ghosts = this.ghosts.filter(g => g.t < 0.22);
     for (const f of this.cfly) f.t += dt; if (this.cfly.length) this.cfly = this.cfly.filter(f => f.t < 0.7);
     if (this.muz > 0) this.muz -= dt;
@@ -225,36 +246,41 @@ export class Game {
     const interval = 0.26 / (1 + 0.12 * (up.rate || 0)) / w.rate;
     const dmg = (1 + 0.2 * (up.dmg || 0)) * (w === WEAPONS.SHOTGUN ? 0.75 : w === WEAPONS.RAIL ? 1.6 : 1);
     this.fireCd -= dt;
-    if (this.fireCd <= 0 && this.squad > 0) {
-      this.fireCd += interval; if (this.fireCd < -interval) this.fireCd = 0;
+    // catch up on every volley that was due this frame (low-fps phones used to lose shots)
+    for (let volley = 0; this.fireCd <= 0 && this.squad > 0 && volley < 5; volley++) {
+      this.fireCd += interval; if (volley === 4) this.fireCd = Math.max(this.fireCd, 0);
       const shooters = Math.min(this.squad, 12); const per = dmg * Math.pow(this.squad / shooters, 0.5);
       const R = this.squadR(); const multi = w.multi || 1;
       for (let i = 0; i < shooters; i++) {
         const ox = shooters === 1 ? 0 : (i / (shooters - 1) - 0.5) * R * 1.6;
         for (let m = 0; m < multi; m++) {
           const a = -Math.PI / 2 + (multi > 1 ? (m - (multi - 1) / 2) * w.spread : rnd(-w.spread, w.spread));
-          this.bullets.push({ j: Math.random() * 34, x: this.px + ox, y: this.PY - 14, vx: Math.cos(a) * 760, vy: Math.sin(a) * 760, d: per, p: w.pierce, col: w.col, hit: null });
+          const j = Math.random() * 26; this.bullets.push({ py: this.PY - 14, x: this.px + ox, y: this.PY - 14 - j, vx: Math.cos(a) * 760, vy: Math.sin(a) * 760, d: per, p: w.pierce, col: w.col, hit: null });
         }
       }
       SFX.shoot(); this.muz = 0.05;
     }
 
-    // bullets
-    const top = -40;
+    // bullets: swept collision (segment from last position) so nothing tunnels at low frame rates
+    const top = -60, sd = speed * dt;
     for (const b of this.bullets) {
+      const x0 = b.x, y0 = b.py !== undefined ? b.py : b.y; b.py = undefined;
       b.x += b.vx * dt; b.y += b.vy * dt;
-      if (b.y < top || b.x < 0 || b.x > W) { b.dead = true; continue; }
+      const ex = b.x - x0, ey = b.y - y0, el = ex * ex + ey * ey || 1;
       for (const it of this.items) {
         if (it.dead || it.done && it.k === 'g') continue;
-        const y = this.sy(it.at); if (y < -30 || y > this.H) continue;
+        const y = this.sy(it.at); if (y < top - 10 || y > this.H) continue;
         if (it.k === 'g') {
-          if (Math.abs(b.y - y) < 14) { const side = b.x < ROAD_C ? 'L' : 'R'; const o = it[side];
-            if ((o.op === '+' || o.op === '-') && (o.grown || 0) < it.cap) { it['hit' + side] += 1; if (it['hit' + side] >= it.need) { it['hit' + side] = 0; o.grown = (o.grown || 0) + 1; if (o.op === '+') o.v++; else { o.v--; if (o.v <= 0) { o.op = '+'; o.v = 1; } } it['flash' + side] = 0.15; } }
-            b.dead = true; break; }
+          // the gate line moved down by sd this frame; did the bullet cross it?
+          if (y0 - (y - sd) >= -3 && b.y - y <= 3) {
+            const k = clamp((y - y0) / (ey || -1), 0, 1), cx = x0 + ex * k;
+            if (cx >= ROAD_L - 2 && cx <= ROAD_R + 2) { this.shootGate(it, cx < ROAD_C ? 'L' : 'R', cx, y); b.dead = true; break; }
+          }
           continue;
         }
         if (b.hit === it) continue;
-        const dx = b.x - it.x, dy = b.y - y;
+        // closest point on the bullet's path this frame
+        const k = clamp(((it.x - x0) * ex + (y - y0) * ey) / el, 0, 1), dx = x0 + ex * k - it.x, dy = y0 + ey * k - y;
         if (dx * dx + dy * dy < (it.r + 4) * (it.r + 4)) {
           it.hp -= b.d; it.flash = 0.08; b.hit = it; SFX.hit();
           if (it.hp <= 0) this.killItem(it);
@@ -262,10 +288,11 @@ export class Game {
         }
       }
       if (!b.dead && this.boss && this.boss.active && !this.boss.dead) {
-        const bo = this.boss, y = this.sy(bo.at); const dx = b.x - bo.x, dy = b.y - y;
+        const bo = this.boss, y = this.sy(bo.at); const k = clamp(((bo.x - x0) * ex + (y - y0) * ey) / el, 0, 1), dx = x0 + ex * k - bo.x, dy = y0 + ey * k - y;
         if (dx * dx + dy * dy < bo.r * bo.r) { bo.hp -= b.d; bo.flash = 0.06; b.dead = true; if (Math.random() < 0.15) this.burst(b.x, b.y, '#6e9b4f', 2, 90);
           if (bo.hp <= 0) { bo.dead = true; this.addShake(14); haptic('heavy'); SFX.boom(); this.burst(bo.x, y, '#6e9b4f', 60, 380); this.ghosts.push({ n: 'boss', fb: 'boss', x: bo.x, y, h: BOSS_H, t: 0 }); this.burst(bo.x, y, '#ffde3b', 30, 260); this.kills++; this.win(); } }
       }
+      if (b.y < top || b.x < 0 || b.x > W) b.dead = true;
     }
     this.bullets = this.bullets.filter(b => !b.dead);
 
@@ -283,7 +310,7 @@ export class Game {
           if (this.squad <= 0) { this.lose(); return; }
         } else if (y > this.H + 40) it.dead = true;
       } else if (it.k === 'g') {
-        if (it.flashL > 0) it.flashL -= dt; if (it.flashR > 0) it.flashR -= dt;
+        if (it.flashL > 0) it.flashL -= dt; if (it.flashR > 0) it.flashR -= dt; if (it.bumpL > 0) it.bumpL -= dt; if (it.bumpR > 0) it.bumpR -= dt;
         if (!it.done && y >= this.PY) { it.done = true; this.applyGate(it, this.px < ROAD_C ? 'L' : 'R'); if (this.over) return; }
         if (y > this.H + 60) it.dead = true;
       } else {
@@ -376,7 +403,7 @@ export class Game {
       else { c.fillStyle = good ? 'rgba(60,140,255,.5)' : 'rgba(231,76,60,.5)'; c.fillRect(X - pw / 2, Y - ph, pw, ph); c.strokeStyle = '#ccd'; c.lineWidth = 4 * s; c.strokeRect(X - pw / 2, Y - ph, pw, ph); }
       if (it['flash' + side] > 0) { c.globalCompositeOperation = 'lighter'; c.globalAlpha = a * 0.6; c.fillStyle = good ? '#4aa3ff' : '#ff4a4a'; c.fillRect(X - pw * 0.42, Y - ph * 0.85, pw * 0.84, ph * 0.7); c.globalCompositeOperation = 'source-over'; }
       // glowing number + people icon
-      const txt = (o.op === 'x' ? '×' : o.op) + o.v; const fs = Math.max(9, 30 * s) | 0;
+      const txt = (o.op === 'x' ? '×' : o.op) + o.v; const bump = it['bump' + side] > 0 ? 1 + it['bump' + side] * 1.6 : 1; const fs = Math.max(9, 30 * s * bump) | 0;
       c.font = `900 ${fs}px system-ui,sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
       const iconH = fs * 0.95, tw = c.measureText(txt).width, tot = tw + iconH * 0.62, tx = X - tot / 2 + iconH * 0.62 + tw / 2, ty = Y - ph * 0.5;
       c.globalAlpha = a;
@@ -384,6 +411,11 @@ export class Game {
       c.lineWidth = Math.max(2, 5 * s); c.strokeStyle = good ? '#0b3d91' : '#7a0a0a'; c.strokeText(txt, tx, ty);
       c.fillStyle = '#fff'; c.fillText(txt, tx, ty); c.shadowBlur = 0;
       this.spr('soldier', SPR.soldier, X - tot / 2 + iconH * 0.3, ty + iconH * 0.5, iconH, 0, 0, 0, a);
+      if (!it.done) { // shot progress: fills with every hit, ticks the number when full
+        const bw = pw * 0.6, bh = Math.max(3, 9 * s), bx = X - bw / 2, by = ty + fs * 0.5; const mx = this.gateMaxed(it, side);
+        c.globalAlpha = a; c.fillStyle = 'rgba(5,10,20,.75)'; rr(c, bx - 1, by - 1, bw + 2, bh + 2, bh); c.fill();
+        c.fillStyle = mx ? '#ffd84a' : '#7CFC00'; rr(c, bx, by, mx ? bw : Math.max(bh, bw * it['hit' + side] / this.gateNeed(it, side)), bh, bh / 2); c.fill();
+        if (mx && s > 0.5) { c.font = `900 ${Math.max(7, 9 * s) | 0}px system-ui`; c.fillStyle = '#2a1a00'; c.fillText('MAX', X, by + bh / 2 + 0.5); } }
       this.base(); c.globalAlpha = 1;
     }
   }
@@ -442,7 +474,7 @@ export class Game {
     this.base();
     if (this.bullets.length) {
       c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.beginPath();
-      for (const b of this.bullets) { const by = b.y - b.j * Math.min(1, (this.PY - b.y) / 60); this.P(b.x, by); c.moveTo(this._x, this._y - 10 * this._s); this.P(b.x - b.vx * 0.022, by - b.vy * 0.022); c.lineTo(this._x, this._y - 10 * this._s); }
+      for (const b of this.bullets) { const by = b.y; this.P(b.x, by); c.moveTo(this._x, this._y - 10 * this._s); this.P(b.x - b.vx * 0.022, by - b.vy * 0.022); c.lineTo(this._x, this._y - 10 * this._s); }
       c.strokeStyle = this.weapon.col; c.globalAlpha = 0.35; c.lineWidth = 4.5; c.stroke();
       c.strokeStyle = this.weapon.col; c.globalAlpha = 1; c.lineWidth = 1.6; c.stroke();
       c.globalCompositeOperation = 'source-over';
@@ -506,7 +538,7 @@ export class Game {
     // number pops
     c.textAlign = 'center'; c.textBaseline = 'middle';
     for (const p of this.pops) {
-      this.P(p.x, p.y); const ds = clamp(this._s, 0.7, 1.3);
+      this.P(p.x, p.y); const ds = clamp(this._s, 0.7, 1.3); if (p.oy) this._y -= p.oy * this._s;
       const k = p.t < 0.12 ? p.t / 0.12 : 1; const sz = p.size * ds * (0.6 + 0.6 * k - 0.2 * Math.max(0, p.t - 0.12));
       c.globalAlpha = 1 - Math.max(0, p.t - 0.6) / 0.4; c.font = `900 ${sz | 0}px system-ui,sans-serif`;
       c.lineWidth = 6; c.strokeStyle = 'rgba(0,0,0,.8)'; c.strokeText(p.txt, this._x, this._y); c.fillStyle = p.col; c.fillText(p.txt, this._x, this._y);

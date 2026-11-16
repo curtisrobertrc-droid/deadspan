@@ -28,6 +28,7 @@ function noise(name, dur, vol = 0.4, gap = 60) {
 export const SFX = {
   shoot: () => tone('shoot', 900, 300, 0.05, 'square', 0.05, 70),
   hit: () => tone('hit', 300, 120, 0.06, 'triangle', 0.12, 35),
+  tick: () => tone('tick', 1400, 1100, 0.03, 'triangle', 0.07, 45),
   kill: () => tone('kill', 220, 60, 0.12, 'sawtooth', 0.12, 45),
   gateGood: () => { tone('g1', 520, 1040, 0.15, 'triangle', 0.3, 0); setTimeout(() => tone('g2', 780, 1560, 0.15, 'triangle', 0.25, 0), 70); },
   gateBad: () => tone('gb', 300, 90, 0.3, 'sawtooth', 0.25, 0),
