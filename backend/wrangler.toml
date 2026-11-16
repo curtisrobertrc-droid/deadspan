@@ -5,8 +5,14 @@ compatibility_date = "2026-11-01"
 [vars]
 GAME_URL = "https://curtisrobertrc-droid.github.io/deadspan/"
 
-# Create with: npx wrangler kv namespace create KV   (then paste the id below)
-[[kv_namespaces]]
-binding = "KV"
-id = "REPLACE_WITH_KV_ID"
+# Create with: npx wrangler d1 create deadspan-arcade   (then paste the database_id it prints below)
+[[d1_databases]]
+binding = "DB"
+database_name = "deadspan-arcade"
+database_id = "REPLACE_WITH_D1_ID"
+
+# Monday 00:05 UTC: freeze last week's prizes; daily: prune old rows
+[triggers]
+crons = ["5 0 * * *"]
+
 # Secrets (not in git): npx wrangler secret put BOT_TOKEN ; npx wrangler secret put WEBHOOK_SECRET
