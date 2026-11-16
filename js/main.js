@@ -1,13 +1,13 @@
 import { CFG, AUTOPLAY, DEVOK } from './config.js';
-import { IS_PORTAL, TARGET, gameplay, loadingDone, PortalAds, onAdMute, portalScore } from './portal.js?v2';
+import { IS_PORTAL, TARGET, gameplay, loadingDone, PortalAds, onAdMute, portalScore, happytime } from './portal.js?v3';
 import { tg, initPlatform, inTelegram, loadLocal, loadCloud, save, haptic, startParam, shareInvite, copyInvite, inviteLink, userId } from './platform.js';
 import { Ads } from './ads.js';
 import { Payments } from './payments.js';
-import { setSound, setAdMute, unlockAudio, SFX } from './audio.js';
+import { setSound, setAdMute, unlockAudio, SFX } from './audio.js?v2';
 onAdMute(setAdMute);
-import { Game, fmt, levelInfo, ENDLESS } from './game.js?v8';
+import { Game, fmt, levelInfo, ENDLESS } from './game.js?v9';
 import { loadAssets } from './assets.js?v8';
-import { createMeta } from './meta.js?v12';
+import { createMeta } from './meta.js?v13';
 import { CATALOG, CATS, applyTo } from './catalog.js?v8';
 
 initPlatform();
@@ -135,6 +135,7 @@ function showResult(r) {
   const box = $('#result');
   $('#resTitle').textContent = r.win ? (levelInfo(r.L).boss ? 'BOSS DOWN!' : 'BRIDGE CLEARED!') : 'OVERRUN!';
   $('#resTitle').className = r.win ? 'win' : 'lose';
+  if (r.win && levelInfo(r.L).boss) happytime();
   $('#resSub').textContent = r.win ? `Level ${r.L} · ${r.kills} zombies · peak squad ${fmt(r.peak)}` : `Level ${r.L} · ${Math.round(r.progress * 100)}% across · ${r.kills} zombies`;
   $('#resCoins').textContent = '+' + fmt(r.coins);
   // bank coins straight away (closing the app on this screen used to lose them); a revive only banks the new coins
@@ -181,7 +182,7 @@ function showEndlessResult(r) {
   const earned = Math.max(0, total - (game.banked || 0)); game.banked = (game.banked || 0) + earned;
   e.dayCoins += earned; e.runs++;
   const isBest = r.wave > e.best || (r.wave === e.best && r.dist > e.bestDist);
-  if (isBest) { e.best = r.wave; e.bestDist = Math.floor(r.dist); }
+  if (isBest) { e.best = r.wave; e.bestDist = Math.floor(r.dist); if (r.wave >= 3) happytime(); }
   meta.addXp(Math.min(120, r.kills * 0.4 + r.wave * 3));
   if (r.wave >= 1) meta.recordRun(r.wave * 10000 + Math.min(9999, Math.floor(r.dist / 10)), r.wave, { mode: 'endless', kills: r.kills, win: false, dur: Math.round(game.t - (game.runT0 || 0)) });
   S.coins += earned; persist(); refresh();

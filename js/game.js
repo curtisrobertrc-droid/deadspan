@@ -3,7 +3,7 @@
 import { AUTOPLAY } from './config.js';
 import { IMG, BG, pick } from './assets.js?v8';
 import { haptic as haptic0 } from './platform.js';
-import { SFX as SFX0 } from './audio.js';
+import { SFX as SFX0 } from './audio.js?v2';
 // SIM: silent fast-forward used by the fairness check (no sound, haptics or end-of-run callbacks)
 let SIM = false; const NOOP = () => {};
 const SFX = new Proxy(SFX0, { get: (o, k) => SIM ? NOOP : o[k] });
@@ -120,7 +120,7 @@ export class Game {
     this.cv.addEventListener('pointermove', e => { if (!dragging) return; const x = toX(e); this.targetX = clamp(this.targetX + (x - lastX) * 1.25 / (this.s0 || 1), ROAD_L + 14, ROAD_R - 14); lastX = x; });
     const up = () => dragging = false;
     this.cv.addEventListener('pointerup', up); this.cv.addEventListener('pointercancel', up);
-    window.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') this.targetX = clamp(this.targetX - 40, ROAD_L + 14, ROAD_R - 14); if (e.key === 'ArrowRight') this.targetX = clamp(this.targetX + 40, ROAD_L + 14, ROAD_R - 14); });
+    window.addEventListener('keydown', e => { if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') this.targetX = clamp(this.targetX - 40, ROAD_L + 14, ROAD_R - 14); if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') this.targetX = clamp(this.targetX + 40, ROAD_L + 14, ROAD_R - 14); });
   }
 
   // ---------- level generation ----------
