@@ -3,7 +3,8 @@ import { initPlatform, inTelegram, loadLocal, loadCloud, save, haptic, startPara
 import { Ads } from './ads.js';
 import { Payments } from './payments.js';
 import { setSound, unlockAudio, SFX } from './audio.js';
-import { Game, fmt, levelInfo } from './game.js';
+import { Game, fmt, levelInfo } from './game.js?v2';
+import { loadAssets } from './assets.js?v2';
 
 initPlatform();
 const $ = s => document.querySelector(s);
@@ -44,6 +45,7 @@ function play() {
 }
 
 function show(id) { for (const el of document.querySelectorAll('.screen')) el.classList.toggle('on', el.id === id); }
+window.__fps = () => game.fps;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('on'), 2600); }
 
 function today() { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); }
@@ -137,5 +139,8 @@ document.addEventListener('visibilitychange', () => game.pause(document.hidden))
 if (inTelegram && window.Telegram.WebApp.onEvent) window.Telegram.WebApp.onEvent('viewportChanged', () => game.resize());
 Ads.preload();
 Payments.claim().then(c => { if (c > 0) { S.coins += c; persist(); refresh(); toast(`Purchase delivered: +${fmt(c)} coins`); } });
-refresh(); show('menu');
-if (AUTOPLAY) setTimeout(play, 400);
+refresh();
+loadAssets(p => { $('#loadFill').style.width = Math.round(p * 100) + '%'; }).then(() => {
+  game.bg = null; show('menu');
+  if (AUTOPLAY) setTimeout(play, 400);
+});

@@ -24,7 +24,9 @@ More from Deadspan Arcade: [Deadspan: Outpost](https://curtisrobertrc-droid.gith
 ## Layout
 ```
 index.html, style.css      game shell + UI
-js/game.js                 engine: level gen, combat, rendering
+js/game.js                 engine: level gen, combat, perspective sprite renderer
+js/assets.js               sprite loader (WebP, pre-scaled mips, hit-flash silhouettes, fallback)
+assets/img/                v2 art (AI-generated, original; ~230 KB total)
 js/main.js                 UI, save, shop, daily, results
 js/platform.js             Telegram WebApp SDK wrapper + storage + haptics
 js/ads.js                  AdsGram rewarded ads (off until blockId set)

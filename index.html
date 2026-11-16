@@ -11,13 +11,20 @@
 <meta property="og:image" content="assets/cover.png">
 <link rel="icon" href="assets/icon.svg">
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
-<link rel="stylesheet" href="style.css">
+<link rel="preload" as="image" href="assets/img/bg.webp?v2" type="image/webp">
+<link rel="stylesheet" href="style.css?v2">
 </head>
 <body>
 <div id="wrap"><canvas id="cv"></canvas></div>
 
+<section id="loading" class="screen on">
+  <div class="logo">DEAD<span>SPAN</span></div>
+  <div class="loadbar"><div id="loadFill"></div></div>
+  <div class="tag" id="loadTxt">Loading the horde…</div>
+</section>
+
 <section id="menu" class="screen">
-  <div class="top"><span class="pill">🪙 <b id="menuCoins">0</b></span><button id="btnSound" class="ghost">🔊</button></div>
+  <div class="top"><span class="pill coinpill"><img src="assets/img/coin.webp" alt="" onerror="this.outerHTML='🪙'"> <b id="menuCoins">0</b></span><button id="btnSound" class="ghost">🔊</button></div>
   <div class="logo">DEAD<span>SPAN</span></div>
   <div class="tag">Hold the bridge. Grow the squad. Survive the horde.</div>
   <div class="lvl">LEVEL <b id="menuLevel">1</b><small id="menuBoss"></small></div>
@@ -33,7 +40,7 @@
 </section>
 
 <section id="hud" class="screen">
-  <div class="hbar"><span id="hudLevel">LEVEL 1</span><span class="pill">🪙 <b id="hudCoins">0</b></span></div>
+  <div class="hbar"><span id="hudLevel" class="pill lvlpill">LEVEL 1</span><span class="pill coinpill"><img src="assets/img/coin.webp" alt="" onerror="this.outerHTML='🪙'"> <b id="hudCoins">0</b></span></div>
   <div class="prog"><div id="hudBar"></div></div>
   <div id="hudWeapon">Rifle</div>
 </section>
@@ -68,6 +75,6 @@
 </div></div>
 
 <div id="toast"></div>
-<script type="module" src="js/main.js"></script>
+<script type="module" src="js/main.js?v2"></script>
 </body>
 </html>

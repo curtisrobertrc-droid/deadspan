@@ -1,10 +1,17 @@
-// Deadspan — zombie bridge runner. Plain canvas, no dependencies, procedural art.
+// Deadspan — zombie bridge runner. Plain canvas, no dependencies. v2: sprite art with pseudo-3D perspective,
+// falls back to the procedural shapes below if an image fails to load.
 import { AUTOPLAY } from './config.js';
+import { IMG, BG, pick } from './assets.js?v2';
 import { haptic } from './platform.js';
 import { SFX } from './audio.js';
 
 const W = 400;
-const ROAD_L = 48, ROAD_R = 352, ROAD_C = 200;
+const ROAD_L = 48, ROAD_R = 352, ROAD_C = 200, HALF = ROAD_C - ROAD_L;
+// perspective: depth constant, road half-width per px below the vanishing point, vanishing point height in bg art
+const D = 400, K = 0.39, VPY = 0.332, BGW = 540, BGH = 960;
+const ZH = { zombie: 56, runner: 54, brute: 88 }; // world heights
+const ZIMG = { zombie: ['zombie1', 'zombie2'], runner: ['runner'], brute: ['brute'] };
+function rr(c, x, y, w, h, r) { c.beginPath(); if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h); }
 const rnd = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
 function mulberry(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
@@ -46,6 +53,7 @@ function buildSprites() {
     x.fillStyle = '#eee'; for (let i = 0; i < 5; i++) x.fillRect(41 + i * 6, 47, 3, 3);
     x.fillStyle = '#8b1e1e'; x.fillRect(30, 60, 50, 6);
   });
+  SPR.shadow = mk(64, 24, x => { const g = x.createRadialGradient(32, 32, 2, 32, 32, 32); g.addColorStop(0, 'rgba(0,0,0,.55)'); g.addColorStop(1, 'rgba(0,0,0,0)'); x.fillStyle = g; x.scale(1, 24 / 64); x.beginPath(); x.arc(32, 32, 32, 0, 7); x.fill(); }, 1);
   SPR.crate = mk(34, 34, x => {
     x.fillStyle = '#9a6b34'; x.fillRect(1, 1, 32, 32); x.strokeStyle = '#5b3c19'; x.lineWidth = 3; x.strokeRect(2.5, 2.5, 29, 29);
     x.beginPath(); x.moveTo(3, 3); x.lineTo(31, 31); x.moveTo(31, 3); x.lineTo(3, 31); x.stroke();
@@ -72,7 +80,7 @@ export class Game {
     this.hooks = hooks; buildSprites();
     this.H = 720; this.state = 'idle'; this.t = 0; this.shake = 0;
     this.targetX = ROAD_C; this.px = ROAD_C;
-    this.parts = []; this.pops = []; this.bullets = [];
+    this.parts = []; this.pops = []; this.bullets = []; this.ghosts = []; this.cfly = []; this.dl = []; this.muz = 0; this.fps = 60; this.frames = 0; this.fpsT0 = performance.now(); this.shx = this.shy = 0;
     this.resize(); window.addEventListener('resize', () => this.resize());
     this.bindInput();
     this.last = performance.now();
@@ -88,13 +96,17 @@ export class Game {
     this.cv.style.width = W * scale + 'px'; this.cv.style.height = this.H * scale + 'px';
     this.cv.width = Math.round(W * scale * this.dpr); this.cv.height = Math.round(this.H * scale * this.dpr);
     this.PY = this.H - 150;
+    this.bs = this.cv.width / W;
+    const sc = Math.max(W / BGW, this.H / BGH); this.bgW = BGW * sc; this.bgH = BGH * sc; this.bgX = (W - this.bgW) / 2; this.bgY = this.H - this.bgH;
+    this.hY = this.bgY + VPY * this.bgH;
+    this.s0 = (this.PY - this.hY) * K / HALF;
     this.bg = null;
   }
   bindInput() {
     let dragging = false, lastX = 0;
     const toX = e => { const r = this.cv.getBoundingClientRect(); return (e.clientX - r.left) / r.width * W; };
     this.cv.addEventListener('pointerdown', e => { dragging = true; lastX = toX(e); this.cv.setPointerCapture && this.cv.setPointerCapture(e.pointerId); });
-    this.cv.addEventListener('pointermove', e => { if (!dragging) return; const x = toX(e); this.targetX = clamp(this.targetX + (x - lastX) * 1.25, ROAD_L + 14, ROAD_R - 14); lastX = x; });
+    this.cv.addEventListener('pointermove', e => { if (!dragging) return; const x = toX(e); this.targetX = clamp(this.targetX + (x - lastX) * 1.25 / (this.s0 || 1), ROAD_L + 14, ROAD_R - 14); lastX = x; });
     const up = () => dragging = false;
     this.cv.addEventListener('pointerup', up); this.cv.addEventListener('pointercancel', up);
     window.addEventListener('keydown', e => { if (e.key === 'ArrowLeft') this.targetX = clamp(this.targetX - 40, ROAD_L + 14, ROAD_R - 14); if (e.key === 'ArrowRight') this.targetX = clamp(this.targetX + 40, ROAD_L + 14, ROAD_R - 14); });
@@ -104,7 +116,7 @@ export class Game {
   setupLevel(L, startSquad, up) {
     this.L = L; this.up = up; const info = levelInfo(L); this.info = info;
     this.squad = startSquad; this.peakSquad = startSquad; this.dist = 0; this.coins = 0; this.kills = 0;
-    this.weapon = WEAPONS.RIFLE; this.fireCd = 0; this.items = []; this.bullets.length = 0; this.parts.length = 0; this.pops.length = 0;
+    this.weapon = WEAPONS.RIFLE; this.fireCd = 0; this.items = []; this.bullets.length = 0; this.parts.length = 0; this.pops.length = 0; this.ghosts.length = 0; this.cfly.length = 0;
     this.boss = null; this.over = false; this.px = this.targetX = ROAD_C; this.endTimer = 0; this.biteCd = 0;
     const R = mulberry(L * 7919 + 13);
     const hpBase = 1.6 * Math.pow(1.2, L - 1);
@@ -120,7 +132,7 @@ export class Game {
           if (L >= 3 && prog > 0.3 && R() < 0.05 + Math.min(L, 30) * 0.004) type = 'brute'; else if (L >= 2 && R() < 0.18) type = 'runner';
           const hp = type === 'brute' ? hpBase * 9 : type === 'runner' ? hpBase * 0.7 : hpBase;
           this.items.push({ k: 'z', type, at: at + row * 34 + R() * 14, x: ROAD_L + 26 + col * 50 + R() * 16 - 8, hp, max: hp,
-            r: type === 'brute' ? 19 : 11, sp: type === 'runner' ? 70 : type === 'brute' ? 22 : 38, bite: (type === 'brute' ? 4 : 1) * (1 + Math.floor(L / 6)), flash: 0, wob: R() * 6 });
+            r: type === 'brute' ? 19 : 11, sp: type === 'runner' ? 70 : type === 'brute' ? 22 : 38, bite: (type === 'brute' ? 4 : 1) * (1 + Math.floor(L / 6)), flash: 0, wob: R() * 6, v: R() < 0.5 ? 0 : 1 });
         }
         if (R() < 0.45) { const t = R() < 0.6 ? 'crate' : 'barrel'; this.items.push({ k: t, at: at - 90, x: ROAD_L + 40 + R() * (ROAD_R - ROAD_L - 80), hp: t === 'crate' ? 6 + L * 3.5 : 3 + L, max: t === 'crate' ? 6 + L * 3.5 : 3 + L, r: 16, flash: 0, pick: PICKUPS[Math.floor(R() * PICKUPS.length)] }); }
         at += rows * 34;
@@ -165,6 +177,8 @@ export class Game {
     it.dead = true;
     if (it.k === 'z') {
       this.kills++; const c = (it.type === 'brute' ? 4 : 1) + Math.floor(this.L / 4); this.coins += c;
+      const zn = ZIMG[it.type][it.v % ZIMG[it.type].length]; if (this.ghosts.length < 30) this.ghosts.push({ n: zn, fb: it.type, x: it.x, y: this.sy(it.at), h: ZH[it.type], t: 0 });
+      if (this.cfly.length < 24) { this.P(it.x, this.sy(it.at)); this.cfly.push({ x: this._x, y: this._y - 20 * this._s, t: rnd(-0.05, 0) }); }
       this.burst(it.x, this.sy(it.at), '#6fbf4f', it.type === 'brute' ? 22 : 9, it.type === 'brute' ? 260 : 170);
       this.burst(it.x, this.sy(it.at), '#9b1c1c', 5, 120);
       if (it.type === 'brute') { this.addShake(5); this.pop(it.x, this.sy(it.at) - 20, '+' + c, '#ffd43b', 20); SFX.boom(); } else SFX.kill();
@@ -188,6 +202,9 @@ export class Game {
     for (const p of this.parts) { p.t += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92; }
     this.parts = this.parts.filter(p => p.t < p.life);
     for (const p of this.pops) { p.t += dt; p.y -= 40 * dt; }
+    for (const g of this.ghosts) g.t += dt; if (this.ghosts.length) this.ghosts = this.ghosts.filter(g => g.t < 0.22);
+    for (const f of this.cfly) f.t += dt; if (this.cfly.length) this.cfly = this.cfly.filter(f => f.t < 0.7);
+    if (this.muz > 0) this.muz -= dt;
     this.pops = this.pops.filter(p => p.t < 1);
     this.shake *= Math.pow(0.02, dt);
     if (this.state !== 'play') return;
@@ -213,10 +230,10 @@ export class Game {
         const ox = shooters === 1 ? 0 : (i / (shooters - 1) - 0.5) * R * 1.6;
         for (let m = 0; m < multi; m++) {
           const a = -Math.PI / 2 + (multi > 1 ? (m - (multi - 1) / 2) * w.spread : rnd(-w.spread, w.spread));
-          this.bullets.push({ x: this.px + ox, y: this.PY - 14, vx: Math.cos(a) * 760, vy: Math.sin(a) * 760, d: per, p: w.pierce, col: w.col, hit: null });
+          this.bullets.push({ x: this.px + ox, y: this.PY - 14 - Math.random() * 22, vx: Math.cos(a) * 760, vy: Math.sin(a) * 760, d: per, p: w.pierce, col: w.col, hit: null });
         }
       }
-      SFX.shoot();
+      SFX.shoot(); this.muz = 0.05;
     }
 
     // bullets
@@ -244,7 +261,7 @@ export class Game {
       if (!b.dead && this.boss && this.boss.active && !this.boss.dead) {
         const bo = this.boss, y = this.sy(bo.at); const dx = b.x - bo.x, dy = b.y - y;
         if (dx * dx + dy * dy < bo.r * bo.r) { bo.hp -= b.d; bo.flash = 0.06; b.dead = true; if (Math.random() < 0.15) this.burst(b.x, b.y, '#6e9b4f', 2, 90);
-          if (bo.hp <= 0) { bo.dead = true; this.addShake(14); haptic('heavy'); SFX.boom(); this.burst(bo.x, y, '#6e9b4f', 60, 380); this.burst(bo.x, y, '#ffde3b', 30, 260); this.kills++; this.win(); } }
+          if (bo.hp <= 0) { bo.dead = true; this.addShake(14); haptic('heavy'); SFX.boom(); this.burst(bo.x, y, '#6e9b4f', 60, 380); this.ghosts.push({ n: 'boss', fb: 'boss', x: bo.x, y, h: 200, t: 0 }); this.burst(bo.x, y, '#ffde3b', 30, 260); this.kills++; this.win(); } }
       }
     }
     this.bullets = this.bullets.filter(b => !b.dead);
@@ -299,114 +316,189 @@ export class Game {
     }
   }
 
-  // ---------- render ----------
-  drawBg(c) {
-    const H = this.H;
-    if (!this.bg) {
-      this.bg = mk(W, H, x => {
-        const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#1d2b3a'); g.addColorStop(1, '#0d1620'); x.fillStyle = g; x.fillRect(0, 0, W, H);
-        const r = x.createLinearGradient(ROAD_L, 0, ROAD_R, 0); r.addColorStop(0, '#3a3a40'); r.addColorStop(0.5, '#4a4a52'); r.addColorStop(1, '#3a3a40');
-        x.fillStyle = r; x.fillRect(ROAD_L, 0, ROAD_R - ROAD_L, H);
-        x.fillStyle = '#6b6b75'; x.fillRect(ROAD_L - 8, 0, 8, H); x.fillRect(ROAD_R, 0, 8, H);
-        // vignette top (fog)
-        const f = x.createLinearGradient(0, 0, 0, 220); f.addColorStop(0, 'rgba(20,18,28,1)'); f.addColorStop(1, 'rgba(20,18,28,0)'); x.fillStyle = f; x.fillRect(0, 0, W, 220);
-      }, this.dpr);
-    }
-    c.drawImage(this.bg, 0, 0, W, H);
-    // scrolling details
-    const off = this.dist % 80;
-    c.fillStyle = 'rgba(255,255,255,.07)';
-    for (let y = -80 + off; y < H; y += 80) { c.fillRect(ROAD_C - 3, y, 6, 40); }
-    c.fillStyle = '#88888f';
-    for (let y = -60 + (this.dist % 60); y < H; y += 60) { c.fillRect(ROAD_L - 12, y, 12, 6); c.fillRect(ROAD_R, y, 12, 6); }
-    c.strokeStyle = 'rgba(120,170,220,.12)'; c.lineWidth = 2;
-    for (let y = -40 + (this.dist * 0.5 % 40); y < H; y += 40) { c.beginPath(); c.moveTo(6, y); c.lineTo(26, y + 6); c.moveTo(374, y + 14); c.lineTo(394, y + 20); c.stroke(); }
-    // finish line
-    if (!this.boss) { const fy = this.sy(this.finishAt); if (fy > -20 && fy < H) { for (let i = 0; i < 16; i++) for (let j = 0; j < 2; j++) { c.fillStyle = (i + j) % 2 ? '#fff' : '#111'; c.fillRect(ROAD_L + i * 19, fy + j * 10, 19, 10); } } }
+  // ---------- render (v2: sprites + perspective) ----------
+  // project world point (x, screen-space world y) -> this._x, this._y, this._s
+  P(x, wy) { let z = this.PY - wy; if (z < -D * 0.7) z = -D * 0.7; const s = this.s0 * D / (D + z); this._s = s; this._x = ROAD_C + (x - ROAD_C) * s; this._y = this.hY + HALF * s / K; }
+  base() { const b = this.bs; this.ctx.setTransform(b, 0, 0, b, b * this.shx, b * this.shy); }
+  // draw a sprite anchored at its feet. name = IMG key, fb = procedural fallback canvas
+  spr(name, fb, X, Y, h, rot = 0, sq = 0, flash = 0, alpha = 1) {
+    const c = this.ctx, e = IMG[name], b = this.bs; let img, w;
+    if (e) { img = pick(e, h * b); w = h * e.aspect; } else if (fb) { img = fb; w = h * fb.width / fb.height; } else return 0;
+    const co = Math.cos(rot), si = Math.sin(rot), sx = 1 + sq, sy = 1 - sq;
+    c.setTransform(b * co * sx, b * si * sx, -b * si * sy, b * co * sy, b * (X + this.shx), b * (Y + this.shy));
+    if (alpha < 1) c.globalAlpha = alpha;
+    c.drawImage(img, -w / 2, -h, w, h);
+    if (flash > 0) { c.globalAlpha = Math.min(1, flash * 14) * 0.9 * alpha; c.drawImage(e && e.white ? pick(e, h * b, true) : img, -w / 2, -h, w, h); }
+    c.globalAlpha = 1;
+    return w;
   }
+  drawBg(c) {
+    const H = this.H, b = this.bs;
+    if (!this.bg || this.bgHas !== !!BG) {
+      this.bgHas = !!BG;
+      const cv = document.createElement('canvas'); cv.width = this.cv.width; cv.height = this.cv.height; const x = cv.getContext('2d'); x.scale(b, b);
+      if (BG) x.drawImage(BG, this.bgX, this.bgY, this.bgW, this.bgH);
+      else {
+        const g = x.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#3a5f8a'); g.addColorStop(0.4, '#1e4f7a'); g.addColorStop(1, '#0d2a44'); x.fillStyle = g; x.fillRect(0, 0, W, H);
+        x.fillStyle = '#3d3d44'; x.beginPath(); x.moveTo(ROAD_C, this.hY); x.lineTo(ROAD_C + HALF * 3, this.hY + HALF * 3 / K); x.lineTo(ROAD_C - HALF * 3, this.hY + HALF * 3 / K); x.fill();
+      }
+      // gritty grade: warm smoke haze near the skyline + vignette
+      const hz = x.createLinearGradient(0, this.hY - 80, 0, this.hY + 60); hz.addColorStop(0, 'rgba(70,40,30,0)'); hz.addColorStop(0.6, 'rgba(70,45,35,.18)'); hz.addColorStop(1, 'rgba(70,45,35,0)'); x.fillStyle = hz; x.fillRect(0, this.hY - 80, W, 140);
+      const v = x.createRadialGradient(W / 2, H * 0.55, H * 0.25, W / 2, H * 0.55, H * 0.75); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(10,5,0,.45)'); x.fillStyle = v; x.fillRect(0, 0, W, H);
+      this.bg = cv;
+    }
+    c.setTransform(1, 0, 0, 1, b * this.shx, b * this.shy); c.drawImage(this.bg, 0, 0); this.base();
+    // scrolling road detail so the deck moves: centre dashes + expansion joints, in perspective
+    const step = 70, far = this.PY + 80; const m0 = Math.floor(this.dist / step);
+    c.fillStyle = 'rgba(255,255,255,.55)';
+    for (let m = m0; m < m0 + Math.ceil(far / step) + 2; m++) {
+      const wy = this.PY - (m * step - this.dist); if (wy > H + 300) continue;
+      this.P(ROAD_C, wy); const x1 = this._x, y1 = this._y, s1 = this._s; if (y1 < this.hY + 2) continue;
+      this.P(ROAD_C, wy - 32); const y2 = this._y, s2 = this._s;
+      c.beginPath(); c.moveTo(x1 - 3 * s1, y1); c.lineTo(x1 + 3 * s1, y1); c.lineTo(x1 + 3 * s2, y2); c.lineTo(x1 - 3 * s2, y2); c.fill();
+      if (m % 3 === 0) { c.fillStyle = 'rgba(0,0,0,.28)'; c.fillRect(ROAD_C - HALF * s1, y1, HALF * 2 * s1, Math.max(1, 2.2 * s1)); c.fillStyle = 'rgba(255,255,255,.08)'; c.fillRect(ROAD_C - HALF * s1, y1 + 2.2 * s1, HALF * 2 * s1, Math.max(0.5, s1)); c.fillStyle = 'rgba(255,255,255,.55)'; }
+    }
+    // finish line
+    if (!this.boss) { const fy = this.sy(this.finishAt); if (fy > -60 && fy < H + 100) { for (let j = 0; j < 2; j++) { this.P(ROAD_C, fy + j * 12); const ya = this._y, sa = this._s; this.P(ROAD_C, fy + j * 12 + 12); const yb = this._y; for (let i = 0; i < 16; i++) { c.fillStyle = (i + j) % 2 ? '#fff' : '#111'; c.fillRect(ROAD_C + (ROAD_L + i * 19 - ROAD_C) * sa, ya, 19 * sa + 0.5, yb - ya + 0.5); } } } }
+  }
+  drawGate(it, y) {
+    const c = this.ctx; const fade = this.farFade(y); if (fade <= 0) return;
+    for (const side of ['L', 'R']) {
+      const o = it[side]; const good = o.op === '+' || o.op === 'x';
+      const cx = (side === 'L' ? ROAD_L : ROAD_C) + HALF / 2; this.P(cx, y); const X = this._x, Y = this._y, s = this._s;
+      const pw = (HALF - 6) * s, ph = pw * 0.6; const a = (it.done ? Math.max(0, 0.3 - (y - this.PY) / 150) : 1) * fade; if (a <= 0.01) continue;
+      const e = IMG[good ? 'gate_blue' : 'gate_red'];
+      this.base(); c.globalAlpha = a;
+      if (e) c.drawImage(pick(e, ph * this.bs), X - pw / 2, Y - ph, pw, ph);
+      else { c.fillStyle = good ? 'rgba(60,140,255,.5)' : 'rgba(231,76,60,.5)'; c.fillRect(X - pw / 2, Y - ph, pw, ph); c.strokeStyle = '#ccd'; c.lineWidth = 4 * s; c.strokeRect(X - pw / 2, Y - ph, pw, ph); }
+      if (it['flash' + side] > 0) { c.globalCompositeOperation = 'lighter'; c.globalAlpha = a * 0.6; c.fillStyle = good ? '#4aa3ff' : '#ff4a4a'; c.fillRect(X - pw * 0.42, Y - ph * 0.85, pw * 0.84, ph * 0.7); c.globalCompositeOperation = 'source-over'; }
+      // glowing number + people icon
+      const txt = (o.op === 'x' ? '×' : o.op) + o.v; const fs = Math.max(9, 30 * s) | 0;
+      c.font = `900 ${fs}px system-ui,sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle';
+      const iconH = fs * 0.95, tw = c.measureText(txt).width, tot = tw + iconH * 0.62, tx = X - tot / 2 + iconH * 0.62 + tw / 2, ty = Y - ph * 0.5;
+      c.globalAlpha = a;
+      c.shadowColor = good ? '#38b6ff' : '#ff3030'; c.shadowBlur = 14 * s * this.bs;
+      c.lineWidth = Math.max(2, 5 * s); c.strokeStyle = good ? '#0b3d91' : '#7a0a0a'; c.strokeText(txt, tx, ty);
+      c.fillStyle = '#fff'; c.fillText(txt, tx, ty); c.shadowBlur = 0;
+      this.spr('soldier', SPR.soldier, X - tot / 2 + iconH * 0.3, ty + iconH * 0.5, iconH, 0, 0, 0, a);
+      this.base(); c.globalAlpha = 1;
+    }
+  }
+  farFade(wy) { const z = this.PY - wy, zmax = this.PY + 50; return z < zmax - 90 ? 1 : Math.max(0, (zmax - z) / 90); }
   render() {
     const c = this.ctx, H = this.H;
-    c.setTransform(this.cv.width / W, 0, 0, this.cv.height / H, 0, 0);
-    const sx = (Math.random() - 0.5) * this.shake, sy = (Math.random() - 0.5) * this.shake;
-    c.translate(sx, sy);
+    this.shx = (Math.random() - 0.5) * this.shake; this.shy = (Math.random() - 0.5) * this.shake;
+    this.base(); c.imageSmoothingEnabled = true;
     this.drawBg(c);
-
-    // gates
-    for (const it of this.items) {
-      if (it.dead || it.k !== 'g') continue; const y = this.sy(it.at); if (y < -60 || y > H + 40) continue;
-      for (const side of ['L', 'R']) {
-        const o = it[side]; const good = o.op === '+' || o.op === 'x'; const x0 = side === 'L' ? ROAD_L : ROAD_C, w = ROAD_C - ROAD_L;
-        const a = it.done ? 0.25 : 1; c.globalAlpha = a;
-        c.fillStyle = good ? 'rgba(46,204,113,.45)' : 'rgba(231,76,60,.45)'; if (it['flash' + side] > 0) c.fillStyle = 'rgba(255,255,255,.7)';
-        c.fillRect(x0 + 3, y - 18, w - 6, 36);
-        c.fillStyle = good ? '#2ecc71' : '#e74c3c'; c.fillRect(x0 + 3, y - 22, w - 6, 5); c.fillRect(x0 + 3, y - 22, 5, 40); c.fillRect(x0 + w - 8, y - 22, 5, 40);
-        c.fillStyle = '#fff'; c.font = '900 26px system-ui,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-        c.lineWidth = 4; c.strokeStyle = 'rgba(0,0,0,.6)'; const txt = (o.op === 'x' ? '×' : o.op) + o.v;
-        c.strokeText(txt, x0 + w / 2, y + 1); c.fillText(txt, x0 + w / 2, y + 1);
-        c.globalAlpha = 1;
-      }
-    }
-    // props + zombies (sorted by y implicitly by at order is fine)
-    for (const it of this.items) {
-      if (it.dead || it.k === 'g') continue; const y = this.sy(it.at); if (y < -50 || y > H + 50) continue;
-      if (it.k === 'z') {
-        const s = it.type === 'brute' ? SPR.brute : it.type === 'runner' ? SPR.runner : SPR.zombie;
-        const w = it.type === 'brute' ? 40 : it.type === 'runner' ? 22 : 24, h = w * 1.25;
-        const bob = Math.sin(this.t * 8 + it.wob) * 1.5;
-        c.drawImage(s, it.x - w / 2, y - h / 2 + bob, w, h);
-        if (it.flash > 0) { c.globalAlpha = 0.6; c.fillStyle = '#fff'; c.beginPath(); c.arc(it.x, y - 2, w * 0.4, 0, 7); c.fill(); c.globalAlpha = 1; }
-        if (it.type === 'brute' && it.hp < it.max) { c.fillStyle = '#300'; c.fillRect(it.x - 18, y - 32, 36, 4); c.fillStyle = '#e74c3c'; c.fillRect(it.x - 18, y - 32, 36 * it.hp / it.max, 4); }
-      } else {
-        const s = it.k === 'crate' ? SPR.crate : SPR.barrel; const w = it.k === 'crate' ? 34 : 26, h = it.k === 'crate' ? 34 : 32;
-        c.drawImage(s, it.x - w / 2, y - h / 2, w, h);
-        if (it.flash > 0) { c.globalAlpha = 0.5; c.fillStyle = '#fff'; c.fillRect(it.x - w / 2, y - h / 2, w, h); c.globalAlpha = 1; }
-        if (it.k === 'crate') { c.fillStyle = WEAPONS[it.pick].col; c.font = '800 10px system-ui'; c.textAlign = 'center'; c.fillText(WEAPONS[it.pick].name.toUpperCase(), it.x, y - 24); c.fillStyle = '#222'; c.fillRect(it.x - 15, y + 20, 30, 4); c.fillStyle = '#ffd43b'; c.fillRect(it.x - 15, y + 20, 30 * Math.max(0, it.hp) / it.max, 4); }
-      }
-    }
-    // boss
-    const bo = this.boss;
-    if (bo && !bo.dead) {
-      const y = this.sy(bo.at);
-      if (y > -130) {
-        const sc = 1 + Math.sin(this.t * 4) * 0.03;
-        c.drawImage(SPR.boss, bo.x - 55 * sc, y - 60 * sc, 110 * sc, 120 * sc);
-        if (bo.flash > 0) { c.globalAlpha = 0.4; c.fillStyle = '#fff'; c.beginPath(); c.arc(bo.x, y, 50, 0, 7); c.fill(); c.globalAlpha = 1; }
-        c.fillStyle = '#300'; c.fillRect(ROAD_L + 10, 70, ROAD_R - ROAD_L - 20, 12); c.fillStyle = '#e74c3c'; c.fillRect(ROAD_L + 10, 70, (ROAD_R - ROAD_L - 20) * Math.max(0, bo.hp) / bo.max, 12);
-        c.fillStyle = '#fff'; c.font = '800 12px system-ui'; c.textAlign = 'center'; c.fillText('BRIDGE BOSS', ROAD_C, 62);
-      }
-    }
-    // bullets
-    c.lineWidth = 3; c.lineCap = 'round';
-    for (const b of this.bullets) { c.strokeStyle = b.col; c.beginPath(); c.moveTo(b.x, b.y); c.lineTo(b.x - b.vx * 0.014, b.y - b.vy * 0.014); c.stroke(); }
-    // squad
-    if (this.squad > 0 && !(this.over && this.state === 'end' && this.squad <= 0)) {
-      const n = Math.min(this.squad, 60); const R = this.squadR();
-      for (let i = 0; i < n; i++) {
-        const r = n === 1 ? 0 : R * Math.sqrt(i / n) * 0.9, a = i * 2.39996;
-        const x = this.px + Math.cos(a) * r, y = this.PY + Math.sin(a) * r * 0.55 + Math.sin(this.t * 14 + i) * 1;
-        c.drawImage(SPR.soldier, x - 10, y - 13, 20, 26);
-      }
-      // squad count badge
-      c.font = '900 22px system-ui,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
-      const bw = 18 + String(fmt(this.squad)).length * 13;
-      c.fillStyle = 'rgba(20,20,30,.85)'; c.beginPath(); c.roundRect ? c.roundRect(this.px - bw / 2, this.PY + R * 0.55 + 14, bw, 28, 14) : c.rect(this.px - bw / 2, this.PY + R * 0.55 + 14, bw, 28); c.fill();
-      c.fillStyle = '#4dabf7'; c.fillText(fmt(this.squad), this.px, this.PY + R * 0.55 + 29);
-    }
-    // particles
-    for (const p of this.parts) { c.globalAlpha = 1 - p.t / p.life; c.fillStyle = p.col; c.fillRect(p.x - p.r, p.y - p.r, p.r * 2, p.r * 2); }
+    // collect visible world entities, draw far -> near
+    const dl = this.dl; dl.length = 0;
+    for (const it of this.items) { if (it.dead) continue; const y = this.sy(it.at); if (y < -60 || y > H + 60) continue; it.yy = y; dl.push(it); }
+    const bo = this.boss; if (bo && !bo.dead) { const y = this.sy(bo.at); if (y > -130) { bo.yy = y; dl.push(bo); } }
+    dl.sort((a, b) => a.yy - b.yy);
+    // shadows pass (one transform, cheap)
+    this.base();
+    for (const it of dl) { if (it.k === 'g') continue; this.P(it.x, it.yy); const w = (it.k === 'boss' ? 140 : it.k === 'z' ? (it.type === 'brute' ? 62 : 36) : 40) * this._s; c.globalAlpha = this.farFade(it.yy); c.drawImage(SPR.shadow, this._x - w / 2, this._y - w * 0.16, w, w * 0.32); }
     c.globalAlpha = 1;
-    // pops
+    const t = this.t;
+    for (const it of dl) {
+      const y = it.yy;
+      if (it.k === 'g') { this.drawGate(it, y); continue; }
+      this.P(it.x, y); const X = this._x, Y = this._y, s = this._s, fade = this.farFade(y);
+      if (it.k === 'z') {
+        const ph = t * (it.type === 'runner' ? 14 : it.type === 'brute' ? 6 : 9) + it.wob;
+        const h = ZH[it.type] * s, n = ZIMG[it.type][it.v % ZIMG[it.type].length];
+        const bob = Math.abs(Math.sin(ph)) * 2.5 * s;
+        this.spr(n, SPR[it.type], X, Y - bob, h, Math.sin(ph) * 0.09, Math.sin(ph * 2) * 0.04, it.flash, fade);
+        if (it.type === 'brute' && it.hp < it.max) { this.base(); const bw = 36 * s; c.fillStyle = '#300'; c.fillRect(X - bw / 2, Y - h - 6 * s, bw, 4 * s); c.fillStyle = '#ff4d4d'; c.fillRect(X - bw / 2, Y - h - 6 * s, bw * it.hp / it.max, 4 * s); }
+      } else if (it.k === 'boss') {
+        const sc = 1 + Math.sin(t * 4) * 0.03, h = 200 * s * sc;
+        this.spr('boss', SPR.boss, X, Y, h, Math.sin(t * 2) * 0.05, Math.sin(t * 4) * 0.03, it.flash, 1);
+      } else {
+        const isC = it.k === 'crate', h = (isC ? 48 : 44) * s;
+        this.spr(isC ? 'crate' : 'barrel', isC ? SPR.crate : SPR.barrel, X, Y, h, 0, 0, it.flash, fade);
+        this.base();
+        if (isC) { const w = WEAPONS[it.pick]; c.font = `900 ${Math.max(8, 13 * s) | 0}px system-ui`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 3; c.strokeStyle = '#000a'; c.strokeText(w.name.toUpperCase(), X, Y - h - 9 * s); c.fillStyle = w.col; c.fillText(w.name.toUpperCase(), X, Y - h - 9 * s);
+          const bw = 32 * s; c.fillStyle = '#222'; c.fillRect(X - bw / 2, Y + 3 * s, bw, 4 * s); c.fillStyle = '#ffd43b'; c.fillRect(X - bw / 2, Y + 3 * s, bw * Math.max(0, it.hp) / it.max, 4 * s); }
+      }
+    }
+    // death pops (white silhouette expanding + fading)
+    for (const g of this.ghosts) { this.P(g.x, g.y); const k = g.t / 0.22; this.spr(g.n, SPR[g.fb], this._x, this._y, g.h * this._s * (1 + k * 0.5), 0, 0, 1, 1 - k); }
+    // bullets: two batched strokes (glow + core), additive
+    this.base();
+    if (this.bullets.length) {
+      c.globalCompositeOperation = 'lighter'; c.lineCap = 'round'; c.beginPath();
+      for (const b of this.bullets) { this.P(b.x, b.y); c.moveTo(this._x, this._y - 10 * this._s); this.P(b.x - b.vx * 0.03, b.y - b.vy * 0.03); c.lineTo(this._x, this._y - 10 * this._s); }
+      c.strokeStyle = this.weapon.col; c.globalAlpha = 0.35; c.lineWidth = 4.5; c.stroke();
+      c.strokeStyle = this.weapon.col; c.globalAlpha = 1; c.lineWidth = 1.6; c.stroke();
+      c.globalCompositeOperation = 'source-over';
+    }
+    // squad: sandbag wall, turret, soldiers
+    if (this.squad > 0) {
+      const R = this.squadR(); const n = Math.min(this.squad, 60);
+      this.P(this.px, this.PY - R * 0.55 - 12); const sw = Math.max(120, R * 2.7) * this._s;
+      const se = IMG.sandbags; this.base();
+      if (se) c.drawImage(pick(se, sw / se.aspect * this.bs), this._x - sw / 2, this._y - sw / se.aspect * 0.8, sw, sw / se.aspect);
+      else { c.fillStyle = '#b8935a'; c.fillRect(this._x - sw / 2, this._y - 14, sw, 16); }
+      this.P(this.px, this.PY - R * 0.55 + 2); const tx = this._x, ty = this._y, ts = this._s, th = 66 * ts;
+      const recoil = this.muz > 0 ? 2 * ts : 0;
+      this.spr('turret', null, tx, ty + recoil, th);
+      if (!IMG.turret) { this.base(); c.fillStyle = '#2f6fe0'; c.beginPath(); c.arc(tx, ty - th * 0.3, th * 0.3, 0, 7); c.fill(); c.fillRect(tx - 5, ty - th, 10, th * 0.6); }
+      const pts = this._pts || (this._pts = []); pts.length = 0;
+      for (let i = 0; i < n; i++) {
+        const r = n === 1 ? 0 : (R * 0.25 + R * Math.sqrt(i / n) * 0.85), a = i * 2.39996 + 0.6;
+        let wx = this.px + Math.cos(a) * r, wy = this.PY + 6 + Math.abs(Math.sin(a)) * r * 0.55;
+        if (n === 1) { wx = this.px + 24; }
+        pts.push(wx, wy, i);
+      }
+      // near soldiers last
+      const order = this._ord || (this._ord = []); order.length = 0; for (let i = 0; i < n; i++) order.push(i);
+      order.sort((a, b) => pts[a * 3 + 1] - pts[b * 3 + 1]);
+      const fl = this.muz > 0;
+      for (const i of order) {
+        this.P(pts[i * 3], pts[i * 3 + 1]); const h = 40 * this._s, bob = Math.sin(t * 14 + i) * 0.8 * this._s;
+        const w = this.spr('soldier', SPR.soldier, this._x, this._y + bob, h);
+        if (fl && i % 3 === 0 && IMG.flash) { this.base(); c.globalCompositeOperation = 'lighter'; const fz = 14 * this._s; c.drawImage(pick(IMG.flash, fz * this.bs), this._x + w * 0.32 - fz / 2, this._y - h * 0.82 - fz / 2, fz, fz); c.globalCompositeOperation = 'source-over'; }
+      }
+      if (fl) { this.base(); c.globalCompositeOperation = 'lighter'; const fz = 34 * ts; if (IMG.flash) c.drawImage(pick(IMG.flash, fz * this.bs), tx - fz / 2, ty - th - fz * 0.55, fz, fz); else { c.fillStyle = '#ffe066'; c.beginPath(); c.arc(tx, ty - th, fz / 3, 0, 7); c.fill(); } c.globalCompositeOperation = 'source-over'; }
+      // squad count badge (glossy)
+      this.base(); this.P(this.px, this.PY + R * 0.55 + 30); const by = Math.min(this._y, H - 24);
+      c.font = '900 22px system-ui,sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      const txt = fmt(this.squad), bw = 30 + txt.length * 13, bx = this.px - bw / 2;
+      const gr = c.createLinearGradient(0, by - 15, 0, by + 15); gr.addColorStop(0, '#5ab8ff'); gr.addColorStop(0.5, '#1f7be0'); gr.addColorStop(1, '#0f4fa8');
+      c.fillStyle = '#062a5c'; rr(c, bx - 2, by - 16, bw + 4, 34, 15); c.fill();
+      c.fillStyle = gr; rr(c, bx, by - 15, bw, 30, 13); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.35)'; rr(c, bx + 4, by - 13, bw - 8, 10, 6); c.fill();
+      c.lineWidth = 4; c.strokeStyle = '#062a5c'; c.strokeText(txt, this.px + 6, by + 1); c.fillStyle = '#fff'; c.fillText(txt, this.px + 6, by + 1);
+      this.spr('soldier', SPR.soldier, bx + 13, by + 10, 20); this.base();
+    }
+    // particles (projected)
+    for (const p of this.parts) { this.P(p.x, p.y); const r = p.r * this._s * 1.3; c.globalAlpha = 1 - p.t / p.life; c.fillStyle = p.col; c.fillRect(this._x - r, this._y - r - 12 * this._s, r * 2, r * 2); }
+    c.globalAlpha = 1;
+    // coins flying to the HUD
+    for (const f of this.cfly) { if (f.t < 0) continue; const k = Math.min(1, f.t / 0.7), e = k * k * (3 - 2 * k); const x = f.x + (W - 56 - f.x) * e, y = f.y + (22 - f.y) * e - Math.sin(k * Math.PI) * 50; this.spr('coin', null, x, y + 9, 18 - 6 * k); }
+    this.base();
+    // boss HP bar
+    if (bo && !bo.dead && bo.yy > -130) {
+      const bw = ROAD_R - ROAD_L - 20, bx = ROAD_L + 10, by = 128;
+      c.fillStyle = '#1a0505'; rr(c, bx - 3, by - 3, bw + 6, 20, 9); c.fill();
+      const g = c.createLinearGradient(0, by, 0, by + 14); g.addColorStop(0, '#ff7a6b'); g.addColorStop(1, '#c0261a');
+      c.fillStyle = g; rr(c, bx, by, Math.max(6, bw * Math.max(0, bo.hp) / bo.max), 14, 7); c.fill();
+      c.font = '900 14px system-ui'; c.textAlign = 'center'; c.lineWidth = 4; c.strokeStyle = '#000'; c.strokeText('☠ BRIDGE BOSS', ROAD_C, by - 12); c.fillStyle = '#fff'; c.fillText('☠ BRIDGE BOSS', ROAD_C, by - 12);
+    }
+    // number pops
     c.textAlign = 'center'; c.textBaseline = 'middle';
     for (const p of this.pops) {
-      const k = p.t < 0.12 ? p.t / 0.12 : 1; const s = p.size * (0.6 + 0.6 * k - 0.2 * Math.max(0, p.t - 0.12));
-      c.globalAlpha = 1 - Math.max(0, p.t - 0.6) / 0.4; c.font = `900 ${s | 0}px system-ui,sans-serif`;
-      c.lineWidth = 5; c.strokeStyle = 'rgba(0,0,0,.7)'; c.strokeText(p.txt, p.x, p.y); c.fillStyle = p.col; c.fillText(p.txt, p.x, p.y);
+      this.P(p.x, p.y); const ds = clamp(this._s, 0.7, 1.3);
+      const k = p.t < 0.12 ? p.t / 0.12 : 1; const sz = p.size * ds * (0.6 + 0.6 * k - 0.2 * Math.max(0, p.t - 0.12));
+      c.globalAlpha = 1 - Math.max(0, p.t - 0.6) / 0.4; c.font = `900 ${sz | 0}px system-ui,sans-serif`;
+      c.lineWidth = 6; c.strokeStyle = 'rgba(0,0,0,.8)'; c.strokeText(p.txt, this._x, this._y); c.fillStyle = p.col; c.fillText(p.txt, this._x, this._y);
     }
     c.globalAlpha = 1;
   }
   loop(now) {
     const dt = Math.min(0.05, (now - this.last) / 1000); this.last = now;
     try { this.update(dt); this.render(); } catch (e) { console.error(e); }
+    this.frames++; if (now - this.fpsT0 >= 1000) { this.fps = this.frames * 1000 / (now - this.fpsT0); this.frames = 0; this.fpsT0 = now; }
     if (this.hooks.onTick && this.state === 'play') this.hooks.onTick(this);
     requestAnimationFrame(this.loop);
   }
